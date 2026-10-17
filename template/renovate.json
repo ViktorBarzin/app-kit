@@ -1,0 +1,21 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["config:recommended"],
+	"minimumReleaseAge": "3 days",
+	"packageRules": [
+		{
+			"description": "TanStack Start and Router ship breaking changes in minors and patches: exact pins, proposed for manual approval (ADR-0001, Dependency updates).",
+			"matchPackageNames": [
+				"/^@tanstack/.*start.*/",
+				"/^@tanstack/.*router.*/"
+			],
+			"rangeStrategy": "pin",
+			"dependencyDashboardApproval": true
+		},
+		{
+			"description": "Our own packages skip the 3-day wait.",
+			"matchPackageNames": ["@viktorbarzin/*"],
+			"minimumReleaseAge": null
+		}
+	]
+}

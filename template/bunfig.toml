@@ -1,0 +1,17 @@
+[install]
+# ADR-0001: wait 3 days before taking a new npm release (seconds). Our own
+# packages skip the wait; bun takes names here, not globs.
+minimumReleaseAge = 259200
+minimumReleaseAgeExcludes = [
+	"@viktorbarzin/log",
+	"@viktorbarzin/runtime",
+	"@viktorbarzin/metrics",
+	"@viktorbarzin/pg",
+	"@viktorbarzin/oidc-token",
+	"@viktorbarzin/auth",
+	"@viktorbarzin/realtime",
+]
+
+[test]
+root = "src"
+preload = ["./src/test/happydom.ts", "./src/test/setup.ts"]

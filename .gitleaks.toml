@@ -1,0 +1,31 @@
+# gitleaks config for app-kit: the default rules over the whole repository,
+# plus two rules that apply only to the published packages (scripts/check-public.ts
+# checks the same, line by line). The template and the scripts name the
+# homelab on purpose; the packages must not.
+title = "app-kit"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "homelab-domain"
+description = "The homelab domain in a public package"
+regex = '''(?i)viktorbarzin\.me'''
+path = '''(^|/)packages/'''
+
+[[rules]]
+id = "internal-address"
+description = "An internal 10.0.x.x address in a public package"
+regex = '''\b10\.0\.\d{1,3}\.\d{1,3}\b'''
+path = '''(^|/)packages/'''
+
+[allowlist]
+description = "Test fixtures with fake credentials"
+paths = [
+  '''packages/auth/src/testing/mock-authentik\.ts''',
+  '''packages/.*/src/.*\.test\.tsx?''',
+  '''packages/.*/src/testdata/''',
+  '''template/src/.*\.test\.tsx?''',
+  '''template/e2e/''',
+  '''scripts/.*\.test\.ts''',
+]

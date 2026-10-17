@@ -1,0 +1,17 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"composite": false,
+		"declaration": false,
+		"declarationMap": false,
+		"sourceMap": false,
+		"jsx": "react-jsx"
+	},
+	"include": [
+		"packages/*/src/**/*.test.ts",
+		"packages/*/src/**/*.test.tsx",
+		"packages/*/test/**/*.ts",
+		"scripts/**/*.ts"
+	]
+}

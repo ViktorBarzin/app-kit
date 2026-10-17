@@ -1,0 +1,12 @@
+{
+	"files": [],
+	"references": [
+		{ "path": "packages/log" },
+		{ "path": "packages/runtime" },
+		{ "path": "packages/metrics" },
+		{ "path": "packages/pg" },
+		{ "path": "packages/oidc-token" },
+		{ "path": "packages/auth" },
+		{ "path": "packages/realtime" }
+	]
+}

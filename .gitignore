@@ -1,0 +1,16 @@
+node_modules
+dist
+*.tsbuildinfo
+.packs
+.output
+.nitro
+.tanstack
+test-results
+playwright-report
+.env
+.env.*
+*.local
+.DS_Store
+
+# agents
+.worktrees/

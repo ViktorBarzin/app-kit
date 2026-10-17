@@ -1,0 +1,15 @@
+node_modules
+.output
+.nitro
+.tanstack
+test-results
+playwright-report
+.env
+.env.*
+*.local
+.git
+.github
+.woodpecker
+.worktrees
+docs
+e2e

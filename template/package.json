@@ -1,0 +1,77 @@
+{
+	"name": "starter",
+	"private": true,
+	"type": "module",
+	"packageManager": "bun@1.4.3",
+	"imports": {
+		"#/*": "./src/*"
+	},
+	"scripts": {
+		"dev": "vite dev --host 127.0.0.1 --port 3000",
+		"build": "vite build && bun run build:entrypoints",
+		"build:entrypoints": "bun build --target bun --outdir .output/entrypoints src/entrypoints/migrate.ts",
+		"start": "bun .output/server/index.mjs",
+		"migrate": "bun .output/entrypoints/migrate.js",
+		"test": "NODE_ENV=test bun test ./src ./scripts",
+		"test:e2e": "playwright test",
+		"typecheck": "tsc --noEmit",
+		"check": "biome check",
+		"format": "biome check --write",
+		"db:generate": "drizzle-kit generate",
+		"db:studio": "drizzle-kit studio",
+		"intent": "bun node_modules/@tanstack/intent/dist/cli.mjs",
+		"rename": "bun scripts/rename.ts"
+	},
+	"dependencies": {
+		"@tailwindcss/vite": "^4.1.18",
+		"@tanstack/react-query": "5.104.2",
+		"@tanstack/react-router": "1.170.44",
+		"@tanstack/react-router-ssr-query": "1.167.3",
+		"@tanstack/react-start": "1.169.1",
+		"@viktorbarzin/auth": "workspace:^",
+		"@viktorbarzin/log": "workspace:^",
+		"@viktorbarzin/metrics": "workspace:^",
+		"@viktorbarzin/oidc-token": "workspace:^",
+		"@viktorbarzin/pg": "workspace:^",
+		"@viktorbarzin/realtime": "workspace:^",
+		"@viktorbarzin/runtime": "workspace:^",
+		"better-auth": "1.7.7",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
+		"drizzle-orm": "^0.45.4",
+		"nitro": "3.0.260610-beta",
+		"prom-client": "^15.1.3",
+		"radix-ui": "^1.8.1",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
+		"tailwind-merge": "^3.0.2",
+		"tailwindcss": "^4.1.18",
+		"tw-animate-css": "^1.3.6",
+		"zod": "^4.6.7"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.5",
+		"@happy-dom/global-registrator": "^21.0.1",
+		"@playwright/test": "^1.64.0",
+		"@tanstack/intent": "0.5.5",
+		"@tanstack/react-router-devtools": "1.167.2",
+		"@testing-library/jest-dom": "^7.0.1",
+		"@testing-library/react": "^16.3.3",
+		"@types/bun": "^1.4.3",
+		"@types/react": "^19.2.0",
+		"@types/react-dom": "^19.2.0",
+		"@vitejs/plugin-react": "^6.0.1",
+		"drizzle-kit": "^0.31.9",
+		"typescript": "^6.0.2",
+		"vite": "^8.0.0"
+	},
+	"intent": {
+		"skills": [
+			"@tanstack/react-start",
+			"@tanstack/start-client-core",
+			"@tanstack/start-server-core",
+			"@tanstack/router-core",
+			"@tanstack/router-plugin"
+		]
+	}
+}

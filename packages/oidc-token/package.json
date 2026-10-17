@@ -1,0 +1,50 @@
+{
+	"name": "@viktorbarzin/oidc-token",
+	"version": "0.1.0",
+	"description": "Verifies OIDC-issued JWT bearer tokens: pinned RS256, issuer from discovery, audience, exp and sub.",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"sideEffects": false,
+	"engines": {
+		"bun": ">=1.4.3"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ViktorBarzin/app-kit.git",
+		"directory": "packages/oidc-token"
+	},
+	"homepage": "https://github.com/ViktorBarzin/app-kit/tree/master/packages/oidc-token#readme",
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"jose": "^6.2.12"
+	},
+	"peerDependencies": {
+		"@viktorbarzin/log": "^0.1.0"
+	},
+	"peerDependenciesMeta": {
+		"@viktorbarzin/log": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@viktorbarzin/log": "workspace:^"
+	}
+}

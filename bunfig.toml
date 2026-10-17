@@ -1,0 +1,17 @@
+[install]
+# ADR-0001: wait 3 days before taking a new npm release (seconds).
+minimumReleaseAge = 259200
+# Our own packages skip the wait. bun takes package names here, not globs,
+# so every package in packages/ is listed.
+minimumReleaseAgeExcludes = [
+	"@viktorbarzin/log",
+	"@viktorbarzin/runtime",
+	"@viktorbarzin/metrics",
+	"@viktorbarzin/pg",
+	"@viktorbarzin/oidc-token",
+	"@viktorbarzin/auth",
+	"@viktorbarzin/realtime",
+]
+
+[test]
+preload = ["./scripts/test-preload.ts"]

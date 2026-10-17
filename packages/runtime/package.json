@@ -1,0 +1,44 @@
+{
+	"name": "@viktorbarzin/runtime",
+	"version": "0.1.0",
+	"description": "Process plumbing for Bun apps: process singletons, idle timeouts, request drain, graceful shutdown, the /api error envelope and zod body validation.",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"sideEffects": false,
+	"engines": {
+		"bun": ">=1.4.3"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ViktorBarzin/app-kit.git",
+		"directory": "packages/runtime"
+	},
+	"homepage": "https://github.com/ViktorBarzin/app-kit/tree/master/packages/runtime#readme",
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"test": "bun test"
+	},
+	"peerDependencies": {
+		"@viktorbarzin/log": "^0.1.0",
+		"zod": "^4.6.0"
+	},
+	"devDependencies": {
+		"@viktorbarzin/log": "workspace:^",
+		"zod": "^4.6.7"
+	}
+}

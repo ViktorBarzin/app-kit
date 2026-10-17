@@ -1,0 +1,28 @@
+{
+	"name": "app-kit",
+	"private": true,
+	"type": "module",
+	"packageManager": "bun@1.4.3",
+	"workspaces": [
+		"packages/*",
+		"template"
+	],
+	"scripts": {
+		"build": "tsc -b",
+		"typecheck": "tsc -b && tsc -p tsconfig.check.json",
+		"check": "biome check",
+		"format": "biome check --write",
+		"test": "bun test ./packages ./scripts",
+		"check-public": "bun scripts/check-public.ts",
+		"release": "bun scripts/release.ts",
+		"export-template": "bun scripts/export-template.ts",
+		"changeset": "changeset"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.5",
+		"@changesets/cli": "^2.29.7",
+		"@types/bun": "^1.4.3",
+		"fast-check": "^4.10.2",
+		"typescript": "^6.0.2"
+	}
+}

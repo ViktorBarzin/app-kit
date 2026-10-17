@@ -1,0 +1,25 @@
+# Auto-deploy, triggered ONLY by the GitHub Actions build POSTing to the
+# Woodpecker API (manual event, with IMAGE_TAG) after a successful build and
+# push to GHCR (infra ADR-0002). event:[manual] (NOT push) so the
+# Forgejo->GitHub mirror's raw pushes don't fire a spurious deploy. The
+# woodpecker-agent SA is cluster-admin; no kubeconfig needed.
+#
+# The init container `migrate` runs the Drizzle migrations from the same
+# image, so it moves with the app container.
+when:
+  - event: manual
+
+steps:
+  - name: check-vars
+    image: alpine
+    commands:
+      - "[ -n \"$IMAGE_TAG\" ] || (echo 'IMAGE_TAG not set — refusing to deploy'; exit 1)"
+
+  - name: deploy
+    image: bitnami/kubectl:latest
+    commands:
+      # A block scalar: Woodpecker substitutes ${IMAGE_TAG} before parsing,
+      # and on a push it is empty, which would break a plain scalar's YAML.
+      - |
+        kubectl -n starter set image deployment/starter migrate=ghcr.io/viktorbarzin/starter:${IMAGE_TAG} starter=ghcr.io/viktorbarzin/starter:${IMAGE_TAG}
+        kubectl -n starter rollout status deployment/starter --timeout=300s

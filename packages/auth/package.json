@@ -1,0 +1,67 @@
+{
+	"name": "@viktorbarzin/auth",
+	"version": "0.1.0",
+	"description": "App-side OIDC sign-in with Better Auth against Authentik: sessions, bearer tokens, membership re-checks, request and approve, CSRF origin checks.",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./schema": {
+			"types": "./dist/schema.d.ts",
+			"default": "./dist/schema.js"
+		},
+		"./testing": {
+			"types": "./dist/testing/index.d.ts",
+			"default": "./dist/testing/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"sideEffects": false,
+	"engines": {
+		"bun": ">=1.4.3"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ViktorBarzin/app-kit.git",
+		"directory": "packages/auth"
+	},
+	"homepage": "https://github.com/ViktorBarzin/app-kit/tree/master/packages/auth#readme",
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"jose": "^6.2.12"
+	},
+	"peerDependencies": {
+		"@viktorbarzin/log": "^0.1.0",
+		"@viktorbarzin/runtime": "^0.1.0",
+		"@viktorbarzin/metrics": "^0.1.0",
+		"@viktorbarzin/oidc-token": "^0.1.0",
+		"better-auth": ">=1.7.7 <1.8.0",
+		"drizzle-orm": "^0.45.0",
+		"prom-client": "^15.1.0"
+	},
+	"devDependencies": {
+		"@viktorbarzin/log": "workspace:^",
+		"@viktorbarzin/runtime": "workspace:^",
+		"@viktorbarzin/metrics": "workspace:^",
+		"@viktorbarzin/oidc-token": "workspace:^",
+		"@viktorbarzin/pg": "workspace:^",
+		"better-auth": "1.7.7",
+		"drizzle-orm": "^0.45.4",
+		"prom-client": "^15.1.3",
+		"drizzle-kit": "^0.31.9"
+	}
+}

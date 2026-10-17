@@ -1,0 +1,15 @@
+node_modules
+.DS_Store
+dist
+*.local
+.env
+.env.*
+.nitro
+.tanstack
+.output
+.vinxi
+test-results
+playwright-report
+
+# agents
+.worktrees/
