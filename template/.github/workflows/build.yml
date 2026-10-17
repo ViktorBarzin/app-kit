@@ -83,6 +83,8 @@ jobs:
 
   build:
     needs: lint-and-test
+    # viktor/app-template itself only tests; an app made from it builds and deploys.
+    if: github.repository != 'ViktorBarzin/app-template'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
