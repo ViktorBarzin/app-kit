@@ -5,7 +5,7 @@
  *   bun scripts/release.ts --plan <dir> | --dry-run | --pack-only <dir>
  *
  * The workflow has two jobs. The build job (no OIDC token) installs, builds,
- * tests, runs gitleaks and check-public, then runs `--plan .packs`: per
+ * tests, runs gitleaks and check-public, then runs `--plan release-packs`: per
  * package, in dependency order,
  *   1. `npm view <name>@<version> version`: present means nothing to do;
  *   2. `bun pm pack`: bun rewrites `workspace:^` into real ranges, which

@@ -114,6 +114,14 @@ describe("release.yml", () => {
 		).toBe(true);
 		expect(wf.jobs.publish?.needs).toEqual("build");
 	});
+
+	test("artifacts are not in a hidden directory (upload-artifact skips those)", async () => {
+		const wf = await workflow(".github/workflows/release.yml");
+		for (const job of Object.values(wf.jobs))
+			for (const step of job.steps)
+				if (step.uses?.startsWith("actions/upload-artifact@"))
+					expect(String(step.with?.path)).not.toMatch(/(^|\/)\./);
+	});
 });
 
 describe("template build.yml", () => {

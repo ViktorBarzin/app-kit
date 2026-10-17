@@ -53,7 +53,7 @@ export TEST_DATABASE_URL=postgres://postgres:ci@127.0.0.1:<port>/postgres
    - `build` (no `id-token`): package tests, gitleaks over the history,
      `scripts/check-public.ts` (no homelab hostnames, internal addresses,
      client IDs or secrets in `src/` or `dist/`), then
-     `scripts/release.ts --plan .packs`, which runs `npm view` per package,
+     `scripts/release.ts --plan release-packs`, which runs `npm view` per package,
      packs (`bun pm pack`) each version npm does not have yet and uploads the
      tarballs with `release-plan.tsv`.
    - `publish` (the only job with `id-token: write`, in the `npm-publish`

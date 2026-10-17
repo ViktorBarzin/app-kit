@@ -2,6 +2,7 @@ node_modules
 dist
 *.tsbuildinfo
 .packs
+release-packs
 .output
 .nitro
 .tanstack

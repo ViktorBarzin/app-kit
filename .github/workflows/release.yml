@@ -71,12 +71,12 @@ jobs:
         run: gitleaks git --config .gitleaks.toml --no-banner --redact --exit-code 1
       - run: bun scripts/check-public.ts --require-gitleaks
       # `npm view` per package; packs the versions npm does not have yet and
-      # writes .packs/release-plan.tsv. With publishing off, this is the dry run.
-      - run: bun scripts/release.ts --plan .packs
+      # writes release-packs/release-plan.tsv. With publishing off, this is the dry run.
+      - run: bun scripts/release.ts --plan release-packs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-packs
-          path: .packs/
+          path: release-packs/
           if-no-files-found: error
           retention-days: 7
 
@@ -103,7 +103,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-packs
-          path: .packs
+          path: release-packs
       - name: Publish and tag
         env:
           FORGEJO_GIT_TOKEN: ${{ secrets.FORGEJO_GIT_TOKEN }}
@@ -114,10 +114,10 @@ jobs:
             if [ "$(npm view "${name}@${version}" version 2>/dev/null || true)" = "$version" ]; then
               echo "${name}@${version} is already on npm"
             else
-              npm publish ".packs/${tarball}" --provenance --access public
+              npm publish "release-packs/${tarball}" --provenance --access public
             fi
             tag="${name}@${version}"
             git tag "$tag" 2>/dev/null || true
             git push "https://viktor:${FORGEJO_GIT_TOKEN}@forgejo.viktorbarzin.me/viktor/app-kit.git" "refs/tags/${tag}"
             echo "published ${tag}"
-          done < .packs/release-plan.tsv
+          done < release-packs/release-plan.tsv
