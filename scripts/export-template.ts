@@ -2,14 +2,16 @@
  * Refresh viktor/app-template (the repository new apps are made from) from
  * template/, after the packages are published:
  *
- *   bun scripts/export-template.ts [--target <dir>] [--push]
+ *   bun scripts/export-template.ts [--target <dir>] [--push] [--no-install]
  *
  * - copies template/ (without build output or node_modules) over a clone of
  *   viktor/app-template, deleting files the template no longer has;
  * - replaces each `workspace:^` with `^<published version>`;
  * - writes a standalone biome.json (in app-kit, template/biome.json extends
  *   the repo root's);
- * - `bun install` writes the template's own bun.lock (needs the versions on npm);
+ * - `bun install` writes the template's own bun.lock (needs the versions on
+ *   npm; --no-install skips it, and the export then has no bun.lock, which
+ *   its build.yml reports as "publish @viktorbarzin packages first");
  * - with --push, commits and pushes to Forgejo (FORGEJO_GIT_TOKEN, or the
  *   ssh remote when unset).
  *
@@ -102,6 +104,28 @@ export async function copyTemplate(target: string): Promise<void> {
 	await cp(join(ROOT, "biome.json"), join(target, "biome.json"));
 }
 
+export interface ExportArgs {
+	target: string | null;
+	push: boolean;
+	install: boolean;
+}
+
+export function parseExportArgs(argv: readonly string[]): ExportArgs {
+	const out: ExportArgs = { target: null, push: false, install: true };
+	for (let i = 0; i < argv.length; i++) {
+		const arg = argv[i];
+		if (arg === "--push") out.push = true;
+		else if (arg === "--no-install") out.install = false;
+		else if (arg === "--target") {
+			const dir = argv[++i];
+			if (!dir || dir.startsWith("--"))
+				throw new Error("--target needs a directory");
+			out.target = dir;
+		} else throw new Error(`unknown argument ${arg}`);
+	}
+	return out;
+}
+
 function run(cmd: string[], cwd: string): void {
 	const proc = Bun.spawnSync(cmd, {
 		cwd,
@@ -113,21 +137,19 @@ function run(cmd: string[], cwd: string): void {
 }
 
 if (import.meta.main) {
-	const args = process.argv.slice(2);
-	const targetAt = args.indexOf("--target");
-	const push = args.includes("--push");
+	const args = parseExportArgs(process.argv.slice(2));
 	const token = process.env.FORGEJO_GIT_TOKEN;
 	const remote = token
 		? `https://viktor:${token}@forgejo.viktorbarzin.me/viktor/app-template.git`
 		: "git@git.viktorbarzin.me:viktor/app-template.git";
-	let target = targetAt >= 0 ? resolve(args[targetAt + 1] ?? "") : "";
+	let target = args.target ? resolve(args.target) : "";
 	if (!target) {
 		target = await mkdtemp(join(tmpdir(), "app-template-"));
 		run(["git", "clone", remote, target], ROOT);
 	}
 	await copyTemplate(target);
-	run([process.execPath, "install"], target);
-	if (push) {
+	if (args.install) run([process.execPath, "install"], target);
+	if (args.push) {
 		if (!existsSync(join(target, ".git")))
 			throw new Error(`${target} is not a git clone`);
 		run(["git", "add", "-A"], target);

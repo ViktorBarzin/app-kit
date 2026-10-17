@@ -4,7 +4,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { copyTemplate, rewriteManifest } from "./export-template.js";
+import {
+	copyTemplate,
+	parseExportArgs,
+	rewriteManifest,
+} from "./export-template.js";
 
 const dirs: string[] = [];
 afterAll(async () => {
@@ -59,5 +63,29 @@ describe("copyTemplate", () => {
 		expect(biome.root).toBeUndefined();
 		expect(biome.extends).toBeUndefined();
 		expect(biome.linter.enabled).toBe(true);
+	});
+});
+
+describe("parseExportArgs", () => {
+	test("defaults: temporary clone, install, no push", () => {
+		expect(parseExportArgs([])).toEqual({
+			target: null,
+			push: false,
+			install: true,
+		});
+	});
+
+	test("--no-install skips bun install, for an export before the packages are on npm", () => {
+		expect(
+			parseExportArgs(["--target", "/tmp/x", "--push", "--no-install"]),
+		).toEqual({ target: "/tmp/x", push: true, install: false });
+	});
+
+	test("--target needs a directory", () => {
+		expect(() => parseExportArgs(["--target"])).toThrow("--target");
+	});
+
+	test("an unknown flag is an error", () => {
+		expect(() => parseExportArgs(["--frobnicate"])).toThrow("--frobnicate");
 	});
 });

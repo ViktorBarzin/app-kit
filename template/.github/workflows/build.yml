@@ -41,6 +41,27 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres:ci@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v6
+      # The @viktorbarzin/* packages come from npm. Until they are published
+      # (and app-kit's export has written bun.lock), the install below cannot
+      # work; say that plainly instead of failing inside bun.
+      - name: Check the @viktorbarzin packages resolve on npm
+        run: |
+          missing=""
+          for spec in $(jq -r '(.dependencies // {}) + (.devDependencies // {})
+              | to_entries[] | select(.key | startswith("@viktorbarzin/"))
+              | "\(.key)@\(.value)"' package.json); do
+            version=$(npm view "$spec" version 2>/dev/null | tail -n 1)
+            if [ -z "$version" ]; then missing="$missing $spec"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=publish @viktorbarzin packages first::Not on npm:$missing. Publish them from viktor/app-kit (README, 'One-time npm setup'), then refresh this repo with app-kit's scripts/export-template.ts."
+            exit 1
+          fi
+          if [ ! -f bun.lock ]; then
+            echo "::error title=publish @viktorbarzin packages first::bun.lock is missing. Run app-kit's scripts/export-template.ts after the packages are on npm; it writes bun.lock."
+            exit 1
+          fi
+          echo "all @viktorbarzin packages resolve on npm"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
