@@ -5,6 +5,11 @@ Verifies JWT bearer tokens an OIDC provider issued, for non-browser clients
 provider's discovery document, `aud` in the app's client IDs, and requires
 `exp` and `sub`, using the provider's JWKS.
 
+<!-- typecheck-preamble
+import type { Counter } from "prom-client";
+declare const verifications: Counter<"outcome">;
+declare const request: Request;
+-->
 ```ts
 import { createDiscoveredVerifier } from "@viktorbarzin/oidc-token";
 

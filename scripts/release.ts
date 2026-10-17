@@ -1,28 +1,31 @@
 /**
- * Publish every package whose version is not on npm yet, then tag it on
- * Forgejo. Run by .github/workflows/release.yml after gitleaks and
- * check-public:
+ * Pack every package whose version is not on npm yet, for
+ * .github/workflows/release.yml:
  *
- *   bun scripts/release.ts [--dry-run] [--pack-only <dir>]
+ *   bun scripts/release.ts --plan <dir> | --dry-run | --pack-only <dir>
  *
- * Per package, in dependency order:
- *   1. `npm view <name>@<version> version`: present means nothing to do.
+ * The workflow has two jobs. The build job (no OIDC token) installs, builds,
+ * tests, runs gitleaks and check-public, then runs `--plan .packs`: per
+ * package, in dependency order,
+ *   1. `npm view <name>@<version> version`: present means nothing to do;
  *   2. `bun pm pack`: bun rewrites `workspace:^` into real ranges, which
- *      `npm publish` from the directory would not.
- *   3. `npm publish <tgz> --provenance --access public`: npm trusted
- *      publishing (OIDC from GitHub Actions, npm >= 11.5.1), no token.
- *   4. tag `<name>@<version>` and push it to Forgejo with FORGEJO_GIT_TOKEN
- *      (the GitHub repo is a one-way mirror; tags pushed there are wiped).
+ *      `npm publish` from the directory would not;
+ * and it writes <dir>/release-plan.tsv (name, version, tarball per line).
+ * The publish job (the only one with `id-token: write`, in the `npm-publish`
+ * environment) downloads that directory and, with no bun and no repo code,
+ * runs `npm publish <tgz> --provenance --access public` and pushes the tag
+ * `<name>@<version>` to Forgejo (the GitHub repo is a one-way mirror; tags
+ * pushed there are wiped).
  *
- * --dry-run packs and reports without publishing or tagging. --pack-only
- * packs every package into <dir> and stops (the template builder uses it).
+ * --dry-run packs and reports. --pack-only packs every package into <dir>
+ * whether published or not, and stops (the template builder uses it).
  */
 import { mkdir, readdir, readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const SCOPE = "@viktorbarzin/";
-const FORGEJO_REPO = "forgejo.viktorbarzin.me/viktor/app-kit.git";
+export const PLAN_FILE = "release-plan.tsv";
 
 export interface WorkspacePackage {
 	/** Relative to the repo root. */
@@ -151,69 +154,72 @@ export async function pack(
 	return path;
 }
 
-function publish(tarball: string): void {
-	const result = run([
-		"npm",
-		"publish",
-		tarball,
-		"--provenance",
-		"--access",
-		"public",
-	]);
-	process.stdout.write(result.stdout);
-	if (result.code !== 0)
-		throw new Error(`npm publish ${tarball} failed:\n${result.stderr}`);
+export interface PlanEntry {
+	name: string;
+	version: string;
+	/** File name inside the plan directory. */
+	tarball: string;
 }
 
-function tagOnForgejo(pkg: WorkspacePackage): void {
-	const token = process.env.FORGEJO_GIT_TOKEN;
-	if (!token)
-		throw new Error(
-			"FORGEJO_GIT_TOKEN is not set; cannot push the release tag",
-		);
-	const tag = `${pkg.name}@${pkg.version}`;
-	const created = run(["git", "tag", tag]);
-	if (created.code !== 0 && !created.stderr.includes("already exists"))
-		throw new Error(`git tag ${tag} failed:\n${created.stderr}`);
-	const pushed = run([
-		"git",
-		"push",
-		`https://viktor:${token}@${FORGEJO_REPO}`,
-		`refs/tags/${tag}`,
-	]);
-	if (pushed.code !== 0)
-		throw new Error(
-			`pushing ${tag} failed:\n${pushed.stderr.replaceAll(token, "***")}`,
-		);
+/**
+ * Write <outDir>/release-plan.tsv: one `name<TAB>version<TAB>tarball` line per
+ * package, in release order. The publish job reads it with plain shell.
+ */
+export async function writeReleasePlan(
+	outDir: string,
+	packed: Array<{ pkg: WorkspacePackage; tarball: string }>,
+): Promise<string> {
+	const lines = packed.map(({ pkg, tarball }) => {
+		if (resolve(dirname(tarball)) !== resolve(outDir))
+			throw new Error(`${tarball} is outside the plan directory ${outDir}`);
+		return `${pkg.name}\t${pkg.version}\t${basename(tarball)}\n`;
+	});
+	await mkdir(outDir, { recursive: true });
+	const path = join(outDir, PLAN_FILE);
+	await Bun.write(path, lines.join(""));
+	return path;
+}
+
+export async function readReleasePlan(path: string): Promise<PlanEntry[]> {
+	return (await readFile(path, "utf8"))
+		.split("\n")
+		.filter((line) => line !== "")
+		.map((line) => {
+			const [name = "", version = "", tarball = ""] = line.split("\t");
+			return { name, version, tarball };
+		});
 }
 
 if (import.meta.main) {
 	const args = process.argv.slice(2);
-	const dryRun = args.includes("--dry-run");
-	const packOnlyAt = args.indexOf("--pack-only");
+	const dirAfter = (flag: string): string | null => {
+		const at = args.indexOf(flag);
+		return at >= 0 ? resolve(args[at + 1] ?? ".packs") : null;
+	};
 	const packages = await listPackages();
-	if (packOnlyAt >= 0) {
-		const outDir = resolve(args[packOnlyAt + 1] ?? ".packs");
+	const packOnly = dirAfter("--pack-only");
+	if (packOnly) {
 		for (const pkg of releaseOrder(packages))
-			console.log(await pack(pkg, outDir));
+			console.log(await pack(pkg, packOnly));
 		process.exit(0);
 	}
-	const plan = await planRelease(packages, npmHasVersion);
-	if (plan.length === 0) {
+	const planDir = dirAfter("--plan");
+	if (!planDir && !args.includes("--dry-run")) {
+		console.error(
+			"usage: bun scripts/release.ts --plan <dir> | --dry-run | --pack-only <dir>",
+		);
+		process.exit(2);
+	}
+	const outDir = planDir ?? resolve(ROOT, ".packs");
+	const packed: Array<{ pkg: WorkspacePackage; tarball: string }> = [];
+	for (const pkg of await planRelease(packages, npmHasVersion))
+		packed.push({ pkg, tarball: await pack(pkg, outDir) });
+	const planPath = await writeReleasePlan(outDir, packed);
+	if (packed.length === 0)
 		console.log("release: every package version is already on npm");
-		process.exit(0);
-	}
-	const outDir = resolve(ROOT, ".packs");
-	for (const pkg of plan) {
-		const tarball = await pack(pkg, outDir);
-		if (dryRun) {
-			console.log(
-				`release (dry run): would publish ${tarball} and tag ${pkg.name}@${pkg.version}`,
-			);
-			continue;
-		}
-		publish(tarball);
-		tagOnForgejo(pkg);
-		console.log(`release: published ${pkg.name}@${pkg.version}`);
-	}
+	for (const { pkg, tarball } of packed)
+		console.log(
+			`release: ${pkg.name}@${pkg.version} is not on npm; packed ${tarball}`,
+		);
+	console.log(`release: plan written to ${planPath}`);
 }

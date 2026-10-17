@@ -1,17 +1,23 @@
 /**
  * Give a new app made from this template its own names:
  *
- *   bun run rename <slug> "<Display Name>"
+ *   bun scripts/rename.ts <slug> "<Display Name>"   (or: bun run rename ...)
  *
  * Rewrites every `starter` token to the slug and every `Starter` token to the
  * display name in every text file (package.json, src/app.config.ts, the
- * workflows, the docs, bun.lock), the NOTIFY channel to `<slug_with_underscores>_events`,
- * and recomputes the migration lock key. Runs once; scripts/rename.test.ts
- * checks that nothing is left.
+ * workflows, the docs, bun.lock), the NOTIFY channel and the database names
+ * in the infra snippets to the slug with underscores, and recomputes the
+ * migration lock key.
+ *
+ * It runs once: afterwards it deletes itself, its test and the `rename`
+ * npm script, so the new app's own test run does not re-run it. It imports
+ * only node built-ins and src/lib, so it works before `bun install`.
+ * scripts/rename.test.ts (in app-kit) checks that nothing is left.
  */
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readdir, readFile, rm, rmdir, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { migrationLockKey } from "@viktorbarzin/pg";
+import { assertBunVersion } from "../src/lib/bun-version";
 
 /** Directories never touched (build output, dependencies, VCS). */
 export const IGNORED_DIRS = [
@@ -29,6 +35,19 @@ export const ALLOW_LIST = ["scripts/rename.ts", "scripts/rename.test.ts"];
 
 const SLUG = /^[a-z][a-z0-9-]{0,49}$/;
 
+/**
+ * A display name lands in TypeScript and YAML string literals and in
+ * Markdown; quotes, backslashes, backticks, `$` and control characters would
+ * break one of them.
+ */
+const UNSAFE_NAME = /["\\`$\p{Cc}]/u;
+
+/** Same as migrationLockKey in @viktorbarzin/pg (the test checks it). */
+export function lockKey(slug: string): bigint {
+	const digest = createHash("sha256").update(`migrate:${slug}`).digest();
+	return BigInt.asIntN(64, digest.readBigUInt64BE(0));
+}
+
 /** Every file under `root` (relative paths), skipping IGNORED_DIRS. */
 export async function listFiles(root: string): Promise<string[]> {
 	const found: string[] = [];
@@ -45,14 +64,37 @@ export async function listFiles(root: string): Promise<string[]> {
 }
 
 function rewrite(text: string, slug: string, displayName: string): string {
-	return text
-		.replace(
-			/migrationLockKey: -?\d+n/g,
-			`migrationLockKey: ${migrationLockKey(slug)}n`,
-		)
-		.replaceAll("starter_events", `${slug.replaceAll("-", "_")}_events`)
-		.replaceAll("Starter", displayName)
-		.replaceAll("starter", slug);
+	const ident = slug.replaceAll("-", "_");
+	return (
+		text
+			.replace(
+				/migrationLockKey: -?\d+n/g,
+				`migrationLockKey: ${lockKey(slug)}n`,
+			)
+			.replaceAll("starter_events", `${ident}_events`)
+			// Postgres identifiers in the infra snippets: the app_databases key
+			// (`starter = {}`) and the role's username.
+			.replace(/\bstarter(\s*=\s*\{\s*\})/g, `${ident}$1`)
+			.replace(/(\busername\s*=\s*)"starter"/g, `$1"${ident}"`)
+			.replaceAll("Starter", displayName)
+			.replaceAll("starter", slug)
+	);
+}
+
+/** Delete the one-shot rename script, its test and the npm script. */
+async function removeRename(root: string): Promise<void> {
+	for (const file of ALLOW_LIST) await rm(join(root, file), { force: true });
+	await rmdir(join(root, "scripts")).catch(() => {}); // only when now empty
+	const path = join(root, "package.json");
+	const pkg = JSON.parse(await readFile(path, "utf8")) as {
+		scripts?: Record<string, string>;
+	};
+	if (pkg.scripts) {
+		delete pkg.scripts.rename;
+		if (pkg.scripts.test)
+			pkg.scripts.test = pkg.scripts.test.replace(" ./scripts", "");
+	}
+	await writeFile(path, `${JSON.stringify(pkg, null, "\t")}\n`);
 }
 
 /** Rename the app in `root`. Returns the files it changed. */
@@ -68,6 +110,10 @@ export async function rename(
 	const name = displayName.trim();
 	if (name === "" || /starter/i.test(name))
 		throw new Error("display name must be non-empty and new");
+	if (UNSAFE_NAME.test(name))
+		throw new Error(
+			"display name must not contain quotes, backslashes, backticks, $ or line breaks",
+		);
 	const config = await readFile(join(root, "src/app.config.ts"), "utf8");
 	if (!config.includes('slug: "starter"'))
 		throw new Error("this app is already renamed");
@@ -84,10 +130,12 @@ export async function rename(
 			changed.push(file);
 		}
 	}
+	await removeRename(root);
 	return changed;
 }
 
 if (import.meta.main) {
+	assertBunVersion(Bun.version);
 	const [slug, displayName] = process.argv.slice(2);
 	if (!slug || !displayName) {
 		console.error('usage: bun run rename <slug> "<Display Name>"');
@@ -99,5 +147,10 @@ if (import.meta.main) {
 		`renamed to ${slug} ("${displayName.trim()}") in ${changed.length} files:`,
 	);
 	for (const file of changed) console.log(`  ${file}`);
-	console.log("Next: bun install, then follow docs/new-app.md.");
+	console.log(
+		"Removed scripts/rename.ts, its test and the rename script (it runs once).",
+	);
+	console.log(
+		"Next: bun install (refreshes bun.lock), commit, then follow README.md from step 3.",
+	);
 }

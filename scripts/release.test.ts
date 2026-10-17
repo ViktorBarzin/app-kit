@@ -7,8 +7,10 @@ import {
 	listPackages,
 	pack,
 	planRelease,
+	readReleasePlan,
 	releaseOrder,
 	type WorkspacePackage,
+	writeReleasePlan,
 } from "./release.js";
 
 const pkg = (name: string, internal: string[] = []): WorkspacePackage => ({
@@ -54,6 +56,53 @@ describe("planRelease", () => {
 			async (name) => name.endsWith("/log"),
 		);
 		expect(plan.map((p) => p.name)).toEqual(["@viktorbarzin/runtime"]);
+	});
+});
+
+describe("the release plan file", () => {
+	test("lists name, version and tarball per line, in release order, and reads back", async () => {
+		const out = await mkdtemp(join(tmpdir(), "plan-"));
+		dirs.push(out);
+		const path = await writeReleasePlan(out, [
+			{ pkg: pkg("log"), tarball: join(out, "viktorbarzin-log-0.1.0.tgz") },
+			{
+				pkg: pkg("runtime", ["log"]),
+				tarball: join(out, "viktorbarzin-runtime-0.1.0.tgz"),
+			},
+		]);
+		expect(path).toBe(join(out, "release-plan.tsv"));
+		expect(await Bun.file(path).text()).toBe(
+			"@viktorbarzin/log\t0.1.0\tviktorbarzin-log-0.1.0.tgz\n" +
+				"@viktorbarzin/runtime\t0.1.0\tviktorbarzin-runtime-0.1.0.tgz\n",
+		);
+		expect(await readReleasePlan(path)).toEqual([
+			{
+				name: "@viktorbarzin/log",
+				version: "0.1.0",
+				tarball: "viktorbarzin-log-0.1.0.tgz",
+			},
+			{
+				name: "@viktorbarzin/runtime",
+				version: "0.1.0",
+				tarball: "viktorbarzin-runtime-0.1.0.tgz",
+			},
+		]);
+	});
+
+	test("an empty plan is an empty file", async () => {
+		const out = await mkdtemp(join(tmpdir(), "plan-"));
+		dirs.push(out);
+		const path = await writeReleasePlan(out, []);
+		expect(await Bun.file(path).text()).toBe("");
+		expect(await readReleasePlan(path)).toEqual([]);
+	});
+
+	test("a tarball outside the plan directory is refused", async () => {
+		const out = await mkdtemp(join(tmpdir(), "plan-"));
+		dirs.push(out);
+		await expect(
+			writeReleasePlan(out, [{ pkg: pkg("log"), tarball: "/elsewhere/x.tgz" }]),
+		).rejects.toThrow("outside");
 	});
 });
 

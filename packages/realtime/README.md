@@ -13,20 +13,34 @@ Realtime updates over Postgres LISTEN/NOTIFY and Server-Sent Events:
 - a browser client that reconnects with backoff and refetches on every
   open or resync, and a TanStack Query hook.
 
+<!-- typecheck-preamble
+import type { AuthUser } from "@viktorbarzin/auth";
+import type { QueryClient } from "@tanstack/react-query";
+import type { SQL } from "bun";
+declare const createListenClient: () => SQL;
+declare const pool: { getClient(): SQL };
+declare const db: { transaction<T>(fn: (tx: { execute(q: unknown): Promise<unknown>; insert(t: unknown): { values(v: unknown): Promise<unknown> } }) => Promise<T>): Promise<T> };
+declare const items: unknown, row: unknown, userSub: string, source: string | null;
+declare const appAuth: { handleApi(r: Request, fn: (u: AuthUser) => Promise<Response>): Promise<Response> };
+declare const queryClient: QueryClient;
+-->
 ```ts
 // server
 import { createRealtime, poolNotify } from "@viktorbarzin/realtime/server";
 export const realtime = createRealtime(() => ({
 	channel: "myapp_events",
-	createListenClient: () => createSqlClient(settings, { max: 1, idleTimeout: 0 }),
+	createListenClient, // e.g. () => createSqlClient(settings, { max: 1, idleTimeout: 0 }) from @viktorbarzin/pg
 	notify: poolNotify(() => pool.getClient()),
 }));
 await db.transaction(async (tx) => {
 	await tx.insert(items).values(row);
 	await realtime.publishInTx(tx, userSub, { type: "invalidate", keys: [["items"]], source });
 });
-// GET /api/events
-return appAuth.handleApi(request, async (user) => realtime.subscribe(request, user.sub));
+// GET /api/events; the topic is the user's sub (null for the dev user)
+export const events = (request: Request) =>
+	appAuth.handleApi(request, async (user) =>
+		realtime.subscribe(request, user.sub ?? user.username),
+	);
 
 // browser (React)
 import { useRealtimeInvalidation } from "@viktorbarzin/realtime/react";

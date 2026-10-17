@@ -40,12 +40,23 @@ function list(name: string): string[] {
 		.filter(Boolean);
 }
 
-export function isProduction(): boolean {
-	return runtimeEnv.NODE_ENV === "production";
-}
-
 export function isDevelopment(): boolean {
 	return runtimeEnv.NODE_ENV === "development";
+}
+
+/**
+ * Development or test, exactly. Anything else (unset, "staging", a typo) is
+ * treated like production, so a stray DEV_USER cannot open the app.
+ */
+export function isDevOrTest(): boolean {
+	return isDevelopment() || runtimeEnv.NODE_ENV === "test";
+}
+
+/** SIGNUP_MODE from the Terraform module (signup_mode); "request" when unset. */
+function signupMode(): "request" | "open" {
+	const mode = env("SIGNUP_MODE") ?? "request";
+	if (mode === "request" || mode === "open") return mode;
+	throw new Error(`SIGNUP_MODE must be "request" or "open" (got "${mode}")`);
 }
 
 export function databaseConfigured(): boolean {
@@ -89,8 +100,10 @@ export function authConfig(db: () => AuthDb): AppAuthConfig {
 			admins: env("AUTH_ADMINS_GROUP") ?? app.adminsGroup,
 			agents: env("AUTH_AGENTS_GROUP") ?? app.agentsGroup,
 		},
-		signup: "request",
-		// DEV_USER is a dev and test fallback; production never honours it.
-		devUser: isProduction() ? null : env("DEV_USER"),
+		signup: signupMode(),
+		// DEV_USER is a dev and test fallback, honoured only when NODE_ENV is
+		// exactly development or test (and @viktorbarzin/auth ignores it while
+		// OIDC is configured).
+		devUser: isDevOrTest() ? env("DEV_USER") : null,
 	};
 }

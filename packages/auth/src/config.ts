@@ -89,7 +89,11 @@ export interface AppAuthConfig<TExtra extends object = Record<never, never>> {
 	adminRecheckMaxAgeMs?: number;
 	/** "request": a non-member gets an access_requests row. "open": the provider adds people to the group. */
 	signup: "request" | "open";
-	/** Outside production only; the app passes null when NODE_ENV=production. */
+	/**
+	 * A stand-in user (member and admin) for callers with no session or token,
+	 * for local dev and tests. Ignored, with an ERROR log, whenever `oidc` is
+	 * set. The app passes it only in development and test.
+	 */
 	devUser?: string | null;
 	/** Extra per-user fields, looked up on every resolved request and once at sign-in. */
 	enrich?: (

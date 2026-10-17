@@ -1,6 +1,13 @@
 {
 	"include": ["**/*.ts", "**/*.tsx"],
-	"exclude": ["node_modules", ".output", ".nitro", ".tanstack", "drizzle"],
+	"exclude": [
+		"node_modules",
+		".output",
+		".nitro",
+		".tanstack",
+		"drizzle",
+		".readme-check"
+	],
 	"compilerOptions": {
 		"target": "ES2022",
 		"jsx": "react-jsx",

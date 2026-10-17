@@ -13,6 +13,14 @@ App-side sign-in against Authentik, built on Better Auth 1.7:
 - request and approve sign-up, the explicit CSRF origin check, and identity
   metrics.
 
+<!-- typecheck-preamble
+import type { AuthDb } from "@viktorbarzin/auth";
+declare const pool: { getDb(): AuthDb };
+declare const env: Record<string, string | undefined>;
+declare const discoveryUrl: string, clientId: string, clientSecret: string;
+declare const apiUrl: string | null, readerToken: string | null, approverToken: string | null, usersGroupPk: string | null;
+declare const isDevOrTest: boolean;
+-->
 ```ts
 import { createAppAuth } from "@viktorbarzin/auth";
 
@@ -21,12 +29,13 @@ export const appAuth = createAppAuth(() => ({
 	appSlug: "myapp",
 	db: () => pool.getDb(),
 	publicOrigins: ["https://myapp.example"],
-	betterAuthSecret: env.BETTER_AUTH_SECRET,
+	betterAuthSecret: env.BETTER_AUTH_SECRET ?? null,
 	oidc: { discoveryUrl, clientId, clientSecret },
 	authentik: { apiUrl, readerToken, approverToken, usersGroupPk },
 	groups: { users: "My App Users", admins: "My App Admins", agents: "My App Agents" },
 	signup: "request",
-	devUser: isProduction ? null : env.DEV_USER,
+	// Honoured only while `oidc` is null; pass it only in development and test.
+	devUser: isDevOrTest ? (env.DEV_USER ?? null) : null,
 }));
 
 // routes: <basePath>/start → appAuth.startSignIn, <basePath>/finish → appAuth.finishSignIn,

@@ -6,15 +6,21 @@ name: Release
 # Forgejo master (changesets locally); there are no version PRs here because
 # this repo is a one-way mirror.
 #
+# Two jobs, so the npm OIDC token is out of reach of dependency code:
+# - build has no id-token. It installs, builds, tests, runs gitleaks and
+#   check-public, packs the unpublished versions and uploads the tarballs.
+# - publish is the only job with `id-token: write`. It runs in the
+#   `npm-publish` environment (deployments from master only), which each npm
+#   trusted publisher names, and it runs npm, git and nothing from the repo's
+#   dependencies.
 # Publishing runs only when the repo variable NPM_PUBLISH_ENABLED is 'true'.
-# Until then every push still runs gitleaks, check-public and a dry run.
+# Until then every push still runs the build job, which is the dry run.
 on:
   push:
     branches: [master]
   workflow_dispatch: {}
 
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
@@ -26,8 +32,10 @@ env:
   GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:18
@@ -43,19 +51,13 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:ci@127.0.0.1:5432/postgres
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.3
-      # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          registry-url: "https://registry.npmjs.org"
-          package-manager-cache: false
-      - run: npm install -g npm@^11.5.1 && npm --version
       - run: bun install --frozen-lockfile
       - run: bun run build
       # Never publish what the package tests have not passed.
@@ -68,11 +70,54 @@ jobs:
       - name: gitleaks (history)
         run: gitleaks git --config .gitleaks.toml --no-banner --redact --exit-code 1
       - run: bun scripts/check-public.ts --require-gitleaks
-      - name: Publish
-        if: vars.NPM_PUBLISH_ENABLED == 'true'
+      # `npm view` per package; packs the versions npm does not have yet and
+      # writes .packs/release-plan.tsv. With publishing off, this is the dry run.
+      - run: bun scripts/release.ts --plan .packs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-packs
+          path: .packs/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: vars.NPM_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14. Node 24.21.0
+      # ships npm 11.19.0, so nothing is fetched from the registry here.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.21.0"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - run: npm --version
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-packs
+          path: .packs
+      - name: Publish and tag
         env:
           FORGEJO_GIT_TOKEN: ${{ secrets.FORGEJO_GIT_TOKEN }}
-        run: bun scripts/release.ts
-      - name: Dry run (publishing is off)
-        if: vars.NPM_PUBLISH_ENABLED != 'true'
-        run: bun scripts/release.ts --dry-run
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r name version tarball; do
+            [ -n "$name" ] || continue
+            if [ "$(npm view "${name}@${version}" version 2>/dev/null || true)" = "$version" ]; then
+              echo "${name}@${version} is already on npm"
+            else
+              npm publish ".packs/${tarball}" --provenance --access public
+            fi
+            tag="${name}@${version}"
+            git tag "$tag" 2>/dev/null || true
+            git push "https://viktor:${FORGEJO_GIT_TOKEN}@forgejo.viktorbarzin.me/viktor/app-kit.git" "refs/tags/${tag}"
+            echo "published ${tag}"
+          done < .packs/release-plan.tsv

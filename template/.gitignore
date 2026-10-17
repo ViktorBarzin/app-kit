@@ -10,6 +10,7 @@ dist
 .vinxi
 test-results
 playwright-report
+.readme-check
 
 # agents
 .worktrees/

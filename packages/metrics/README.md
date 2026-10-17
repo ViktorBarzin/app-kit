@@ -5,8 +5,14 @@ default process metrics, the HTTP request metrics every app exports, and
 `/metrics` on a port of its own that the ingress never routes (point the
 pod's `prometheus.io/port` annotation at it).
 
+<!-- typecheck-preamble
+declare const request: Request;
+declare const response: Response;
+-->
 ```ts
+import { getLogger } from "@viktorbarzin/log";
 import { createHandlerLabeler, getRegistry, observeRequest, parseMetricsPort, startMetricsServer } from "@viktorbarzin/metrics";
+import { Counter } from "prom-client";
 
 // at boot (Bun)
 const metrics = startMetricsServer({ port: parseMetricsPort(process.env.METRICS_PORT) });

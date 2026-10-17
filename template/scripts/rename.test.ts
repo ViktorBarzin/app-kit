@@ -3,12 +3,12 @@
  * token is rewritten, outside a short allow-list.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { migrationLockKey } from "@viktorbarzin/pg";
 
-import { ALLOW_LIST, IGNORED_DIRS, listFiles, rename } from "./rename";
+import { ALLOW_LIST, IGNORED_DIRS, listFiles, lockKey, rename } from "./rename";
 
 const TEMPLATE = resolve(import.meta.dir, "..");
 const copies: string[] = [];
@@ -76,6 +76,74 @@ describe("rename", () => {
 		);
 		expect(await read(dir, "AGENTS.md")).toStartWith("# my-app");
 		expect(await read(dir, "README.md")).toStartWith("# My App");
+	});
+
+	test("is one-shot: the script, its test and the npm script are gone afterwards", async () => {
+		const dir = await copyTemplate();
+		await rename(dir, "my-app", "My App");
+		const exists = (path: string) =>
+			stat(join(dir, path)).then(
+				() => true,
+				() => false,
+			);
+		expect(await exists("scripts/rename.ts")).toBe(false);
+		expect(await exists("scripts/rename.test.ts")).toBe(false);
+		const pkg = JSON.parse(await read(dir, "package.json")) as {
+			scripts: Record<string, string>;
+		};
+		expect(pkg.scripts.rename).toBeUndefined();
+		// Every path the test script names still exists.
+		for (const path of pkg.scripts.test?.match(/\.\/\S+/g) ?? [])
+			expect(await exists(path)).toBe(true);
+	});
+
+	test("the lock key needs no installed package and matches @viktorbarzin/pg", () => {
+		for (const slug of ["starter", "my-app", "tasks", "a", "x-1-y"])
+			expect(lockKey(slug)).toBe(migrationLockKey(slug));
+	});
+
+	test("imports only node built-ins and src/lib, so it runs before bun install", async () => {
+		const source = await read(TEMPLATE, "scripts/rename.ts");
+		const imports = [
+			...source.matchAll(/^import [^;]* from "([^"]+)";$/gm),
+		].map((m) => m[1]);
+		expect(imports.length).toBeGreaterThan(0);
+		for (const from of imports)
+			expect(from).toMatch(/^(node:|\.\.\/src\/lib\/)/);
+	});
+
+	test("a dashed slug gets underscores where Postgres needs an identifier", async () => {
+		const dir = await copyTemplate();
+		await rename(dir, "my-app", "My App");
+		for (const doc of ["README.md", "docs/new-app.md"]) {
+			const text = await read(dir, doc);
+			expect(text).toContain("`my_app = {}`");
+			expect(text).toMatch(/username\s*=\s*"my_app"/);
+			expect(text).not.toMatch(/my-app = \{\}/);
+			expect(text).not.toMatch(/username\s*=\s*"my-app"/);
+			// The Vault role key and everything else keep the slug.
+			expect(text).toMatch(/\bmy-app = \{/);
+			expect(text).toContain("secret/my-app");
+		}
+	});
+
+	test.each([
+		'Bob "The" Shop',
+		"Back\\slash",
+		"Two\nLines",
+		"Dollar $5 Shop",
+		"Tick ` mark",
+	])("refuses the display name %p", async (name) => {
+		const dir = await copyTemplate();
+		await expect(rename(dir, "shop", name)).rejects.toThrow("display name");
+	});
+
+	test("keeps punctuation a name may need", async () => {
+		const dir = await copyTemplate();
+		await rename(dir, "bobs-shop", "Bob's Shop & Co.");
+		expect(await read(dir, "src/app.config.ts")).toContain(
+			`displayName: "Bob's Shop & Co."`,
+		);
 	});
 
 	test.each([

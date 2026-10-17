@@ -14,6 +14,8 @@ import { startMetricsServer } from "@viktorbarzin/metrics";
 import { installShutdown } from "@viktorbarzin/runtime";
 import { definePlugin } from "nitro";
 
+import { assertBunVersion } from "#/lib/bun-version";
+
 import { pool } from "./db.server";
 import { databaseConfigured, isDevelopment, metricsPort } from "./env.server";
 import { realtime } from "./realtime.server";
@@ -21,6 +23,7 @@ import { realtime } from "./realtime.server";
 export default definePlugin(() => {
 	// Bun-only steps; `vite dev` may run the server outside Bun.
 	if (typeof Bun === "undefined") return;
+	assertBunVersion(Bun.version);
 	if (!isDevelopment()) installJsonConsole();
 	const metrics = startMetricsServer({ port: metricsPort() });
 	if (databaseConfigured()) void realtime.start().catch(() => {});

@@ -457,6 +457,18 @@ describe.skipIf(!adminUrl)("without sign-in configured", () => {
 		}
 	});
 
+	test("with sign-in configured, devUser is ignored: an anonymous caller stays anonymous", async () => {
+		h.override({ devUser: "dev" });
+		try {
+			expect(await h.appAuth.resolveUser(new Request(`${h.origin}/x`))).toBe(
+				null,
+			);
+			expect((await h.get("/api/me", null)).status).toBe(401);
+		} finally {
+			h.override({});
+		}
+	});
+
 	test("the start URL and redirect follow basePath", () => {
 		expect(h.appAuth.startUrl("/x", true)).toBe(
 			"/api/auth/start?return=%2Fx&login=1",

@@ -124,11 +124,23 @@ Payloads name keys, never data, and stay under 7,900 bytes.
 
 ## Commands
 
+This app needs Bun 1.4.3 or newer (`packageManager` in package.json). On the
+devvm, `~/.bun/bin/bun` is 1.3.11 and comes first on PATH; run
+`/usr/local/bin/bun`, or put `/usr/local/bin` first. `bun run` scripts call
+whichever `bun` is first on PATH, and the server refuses to start on an older
+one.
+
 ```sh
-bun run dev            # vite dev on 127.0.0.1:3000
+bun run dev            # vite dev under Bun on 127.0.0.1:${PORT:-3000}
 bun run build          # vite build + the migrate entrypoint
 bun run check          # biome
 bun run typecheck
 bun run test           # bun test; DB and HTTP tests need TEST_DATABASE_URL and a build
 bun run test:e2e       # Playwright against the built server
 ```
+
+To run it locally against a database (README, "Run locally"):
+`DATABASE_URL=... bun run build && bun run migrate`, then
+`DATABASE_URL=... DEV_USER=<name> PORT=<free port> bun run dev`. `DEV_USER`
+stands in for sign-in only when `NODE_ENV` is `development` or `test` and no
+OIDC client is configured.

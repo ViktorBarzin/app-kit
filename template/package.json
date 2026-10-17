@@ -7,7 +7,7 @@
 		"#/*": "./src/*"
 	},
 	"scripts": {
-		"dev": "vite dev --host 127.0.0.1 --port 3000",
+		"dev": "bunx --bun vite dev --host 127.0.0.1 --port ${PORT:-3000}",
 		"build": "vite build && bun run build:entrypoints",
 		"build:entrypoints": "bun build --target bun --outdir .output/entrypoints src/entrypoints/migrate.ts",
 		"start": "bun .output/server/index.mjs",

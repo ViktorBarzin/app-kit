@@ -14,6 +14,7 @@
 		"format": "biome check --write",
 		"test": "bun test ./packages ./scripts",
 		"check-public": "bun scripts/check-public.ts",
+		"check-readmes": "bun scripts/check-readmes.ts",
 		"release": "bun scripts/release.ts",
 		"export-template": "bun scripts/export-template.ts",
 		"changeset": "changeset"

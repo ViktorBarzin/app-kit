@@ -8,6 +8,11 @@ Drizzle on Bun's built-in SQL client for an app on a shared Postgres:
 - migrations under a session `pg_advisory_lock` (drizzle's migrator takes
   none), a migrate CLI for an init container, and throwaway test databases.
 
+<!-- typecheck-preamble
+import { pgTable, text } from "drizzle-orm/pg-core";
+const items = pgTable("items", { title: text("title") });
+const schema = { items };
+-->
 ```ts
 import { createPool, migrationLockKey, pgSettingsFromEnv, runMigrateCli } from "@viktorbarzin/pg";
 

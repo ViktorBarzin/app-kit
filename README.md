@@ -48,12 +48,22 @@ export TEST_DATABASE_URL=postgres://postgres:ci@127.0.0.1:<port>/postgres
 
 1. Record changes with `bun run changeset`, then `bunx changeset version` to
    bump versions and changelogs. Commit to `master` on Forgejo.
-2. `.github/workflows/release.yml` runs on every push to `master`: package
-   tests, gitleaks over the history, `scripts/check-public.ts` (no homelab
-   hostnames, internal addresses, client IDs or secrets in `src/` or `dist/`),
-   then `scripts/release.ts`, which publishes each package whose version is
-   not on npm yet (`bun pm pack`, then `npm publish --provenance`) and tags
-   `<name>@<version>` on Forgejo.
+2. `.github/workflows/release.yml` runs on every push to `master`, in two
+   jobs so that dependency code never holds the npm OIDC token:
+   - `build` (no `id-token`): package tests, gitleaks over the history,
+     `scripts/check-public.ts` (no homelab hostnames, internal addresses,
+     client IDs or secrets in `src/` or `dist/`), then
+     `scripts/release.ts --plan .packs`, which runs `npm view` per package,
+     packs (`bun pm pack`) each version npm does not have yet and uploads the
+     tarballs with `release-plan.tsv`.
+   - `publish` (the only job with `id-token: write`, in the `npm-publish`
+     environment, only when `NPM_PUBLISH_ENABLED` is `true`): downloads the
+     tarballs and, with npm and git only, runs `npm publish --provenance` for
+     each and tags `<name>@<version>` on Forgejo.
+
+   Every action is pinned to a commit SHA and every downloaded binary to a
+   sha256; `scripts/workflows.test.ts` checks both, here and in the
+   template.
 3. After a publish, `bun scripts/export-template.ts --push` refreshes
    `viktor/app-template` with the published versions.
 
@@ -72,10 +82,11 @@ hand once.
    order). This first version has no provenance statement.
 3. For each package on npmjs.com, Settings, Trusted Publisher, GitHub Actions:
    organisation or user `ViktorBarzin`, repository `app-kit`, workflow
-   filename `release.yml`, no environment. Publishers created after
+   filename `release.yml`, environment `npm-publish`. Publishers created after
    2026-09-03 allow only `npm stage publish` by default; also allow
    `npm publish`.
-4. On GitHub `ViktorBarzin/app-kit`, set the repository variable
+4. On GitHub `ViktorBarzin/app-kit`, the environment `npm-publish` exists
+   (deployments from `master` only). Set the repository variable
    `NPM_PUBLISH_ENABLED` to `true` and the secret `FORGEJO_GIT_TOKEN` (a
    Forgejo token with write access to `viktor/app-kit`, for the release tags).
 5. Optionally, in each package's npm settings, require trusted publishing and

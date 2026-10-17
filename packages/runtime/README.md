@@ -4,7 +4,13 @@ Process-level plumbing for a Bun web app. Framework-free: every function takes
 a `Request` or returns a `Response`, and the app wires it into its middleware
 and routes.
 
+<!-- typecheck-preamble
+declare const request: Request;
+declare const realtime: { stop(): Promise<void> };
+declare const pool: { close(): Promise<void> };
+-->
 ```ts
+import { z } from "zod";
 import {
 	ApiError, createErrorResponder, extendIdleTimeout, healthResponse,
 	installShutdown, readJson, trackRequest, withFrameDenial,

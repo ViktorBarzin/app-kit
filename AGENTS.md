@@ -10,7 +10,7 @@ reference app the code was extracted from is `~/code/tasks`. Read
 ```
 packages/<name>/   one npm package each: src/, dist/ (tsc -b), README.md, CHANGELOG.md
 template/          the app template's source of truth (a workspace member); see template/AGENTS.md
-scripts/           check-public.ts, release.ts, export-template.ts (+ tests)
+scripts/           check-public.ts, check-readmes.ts, release.ts, export-template.ts (+ tests), workflows.test.ts
 .github/workflows/ ci.yml (every push), release.yml (master)
 ```
 
@@ -57,7 +57,8 @@ bun install && bun run build && bun run check && bun run test
 bun run typecheck                       # packages, then tests and scripts
 cd template && bun run build && bun run test && bun run test:e2e
 bun scripts/check-public.ts --require-gitleaks
-bun scripts/release.ts --dry-run        # or --pack-only .packs
+bun scripts/check-readmes.ts            # README ```ts examples typecheck (after build)
+bun scripts/release.ts --dry-run        # or --plan <dir> (what CI runs), --pack-only .packs
 ```
 
 DB, LISTEN and HTTP tests need `TEST_DATABASE_URL` (see README.md).

@@ -5,6 +5,9 @@ stderr with `ts` (Python `isoformat`, `+00:00`), `level`, `logger`, `msg`,
 then the call's extras (which never overwrite those four keys), then `exc`
 for an error. No dependencies; works on Bun and Node.
 
+<!-- typecheck-preamble
+declare const err: unknown;
+-->
 ```ts
 import { getLogger, installJsonConsole } from "@viktorbarzin/log";
 

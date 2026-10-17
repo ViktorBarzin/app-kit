@@ -107,7 +107,9 @@ function resolve<TExtra extends object>(config: AppAuthConfig<TExtra>) {
 			config.membershipMaxAgeMs ?? DEFAULTS.membershipMaxAgeMs,
 		adminRecheckMaxAgeMs:
 			config.adminRecheckMaxAgeMs ?? DEFAULTS.adminRecheckMaxAgeMs,
-		devUser: config.devUser ?? null,
+		// The dev user stands in only while sign-in is off. With OIDC configured,
+		// a stray DEV_USER would otherwise make every anonymous caller an admin.
+		devUser: config.oidc ? null : (config.devUser ?? null),
 		streamPaths: config.streamPaths ?? [...DEFAULTS.streamPaths],
 		loggerPrefix: config.loggerPrefix ?? config.appSlug,
 	};
@@ -276,6 +278,7 @@ export function createAppAuth<TExtra extends object = Record<never, never>>(
 	config: () => AppAuthConfig<TExtra>,
 ): AppAuth<TExtra> {
 	const current = () => resolve(config());
+	let devUserIgnoredLogged = false;
 	const loggers = new Map<string, Logger>();
 	const logger = (part: string): Logger => {
 		const cfg = config();
@@ -541,6 +544,12 @@ export function createAppAuth<TExtra extends object = Record<never, never>>(
 		const fromSession = await sessionUser(request);
 		if (fromSession) return fromSession;
 		const cfg = current();
+		if (!devUserIgnoredLogged && cfg.oidc && config().devUser) {
+			devUserIgnoredLogged = true;
+			logger("auth").error(
+				"devUser is ignored because OIDC sign-in is configured",
+			);
+		}
 		if (cfg.devUser) {
 			const extra = await enrich(cfg.db(), null, cfg.devUser);
 			return {

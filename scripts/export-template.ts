@@ -40,6 +40,7 @@ const SKIP = new Set([
 	".tanstack",
 	"test-results",
 	"playwright-report",
+	".readme-check",
 	".git",
 ]);
 
