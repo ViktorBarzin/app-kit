@@ -8,7 +8,7 @@
 > HTTP endpoints are server routes (`createFileRoute(...)({ server: { handlers } })`).
 > If you catch yourself writing a Next.js pattern, load the skills below first.
 
-`starter` is built on the default app stack (ADR-0001 in Viktor's `~/code/docs/adr/0001-default-app-stack.md`):
+`starter` is built on the default app stack (ADR-0001, in app-kit at `docs/adr/0001-default-app-stack.md`):
 TanStack Start on Bun, Drizzle on the shared CNPG Postgres, Authentik
 accounts through app-side OIDC, realtime over Postgres LISTEN/NOTIFY and SSE.
 The shared plumbing lives in the `@viktorbarzin/*` packages (table below);

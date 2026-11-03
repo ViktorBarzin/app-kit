@@ -1,7 +1,7 @@
 # app-kit
 
 Shared `@viktorbarzin/*` packages and the app template for the default app
-stack (ADR-0001, in Viktor's `~/code/docs/adr/0001-default-app-stack.md`). The
+stack ([ADR-0001](docs/adr/0001-default-app-stack.md)). The
 reference app the code was extracted from is `~/code/tasks`. Read
 [README.md](README.md) for the layout and the release flow.
 
@@ -10,6 +10,7 @@ reference app the code was extracted from is `~/code/tasks`. Read
 ```
 packages/<name>/   one npm package each: src/, dist/ (tsc -b), README.md, CHANGELOG.md
 template/          the app template's source of truth (a workspace member); see template/AGENTS.md
+docs/adr/          architecture decisions (ADR-0001: the default app stack)
 scripts/           check-public.ts, check-readmes.ts, release.ts, export-template.ts (+ tests), workflows.test.ts
 .github/workflows/ ci.yml (every push), release.yml (master)
 ```
