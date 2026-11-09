@@ -13,6 +13,10 @@ revised: 2026-10-16 (review panel)
 >
 > Moved on 2026-11-03 from the `~/code` monorepo root (`docs/adr/0001-default-app-stack.md`)
 > to app-kit, which holds the shared packages and template this ADR asks for.
+>
+> On 2026-11-09 [ADR-0002](0002-otel-log-fields-and-telemetry.md) replaced the
+> log line under Delivery, Shared code: logs now use OpenTelemetry field
+> names, and new apps have telemetry on by default.
 
 ## Context
 
@@ -113,7 +117,7 @@ Apps that use the realtime package do not enroll in Sablier scale-to-zero
 
 | Area | Default |
 |---|---|
-| Shared code | Shared npm packages (auth setup, realtime, token verification, logging and metrics) published as public packages on npmjs.org under the `@viktorbarzin` scope, a free npm organisation. The libraries live in public GitHub repos, pass a gitleaks scan before each release, hold no hostnames, client IDs or secrets, and are published from GitHub Actions with npm trusted publishing (provenance included, no tokens in consumers, no private Actions minutes). Builds therefore work with the homelab down, as infra ADR-0002 requires. The `@homelab` scope belongs to another npm user and is never used. Logging follows the existing JSON-lines contract (`ts`, `level`, `logger`, `msg`, plus extras) and metrics use the `prometheus.io/*` scrape annotations. |
+| Shared code | Shared npm packages (auth setup, realtime, token verification, logging and metrics) published as public packages on npmjs.org under the `@viktorbarzin` scope, a free npm organisation. The libraries live in public GitHub repos, pass a gitleaks scan before each release, hold no hostnames, client IDs or secrets, and are published from GitHub Actions with npm trusted publishing (provenance included, no tokens in consumers, no private Actions minutes). Builds therefore work with the homelab down, as infra ADR-0002 requires. The `@homelab` scope belongs to another npm user and is never used. Logging follows the existing JSON-lines contract (`ts`, `level`, `logger`, `msg`, plus extras; superseded by [ADR-0002](0002-otel-log-fields-and-telemetry.md), OpenTelemetry field names) and metrics use the `prometheus.io/*` scrape annotations. |
 | Dependency updates | A separate Renovate job for app repos, with its own repo list and run limit, Bun available to update `bun.lock`, and OSV vulnerability alerts on. Updates land straight on master like infra, and the normal build runs afterwards. App repos wait 3 days before taking a new npm release (infra has no wait); our own packages are excluded. An urgent CVE fix is taken through an exact-version `minimumReleaseAgeExcludes` entry and a manual bump. Nothing waits for review (Viktor, 2026-10-18; until then TanStack Start and Router and the Bun pin were proposed for manual approval). TanStack Start and Router (`@tanstack/*start*`, `@tanstack/*router*`) are pinned to exact versions and land together in one commit; Start ships breaking changes in minor and patch releases, so the app CI's tests, which run before the deploy job, are what stops a breaking bump. The Bun runtime pin, the `oven/bun` base image and CI's `setup-bun` version land together in one commit. |
 | Starting a new app | A template repo plus a reusable Terraform app module, extracted from the pilot. The module owns the Deployment, ingress, ESO secrets and the Authentik application; the database pieces are the map entries described under Provisioning. |
 

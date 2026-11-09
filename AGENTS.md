@@ -10,7 +10,7 @@ reference app the code was extracted from is `~/code/tasks`. Read
 ```
 packages/<name>/   one npm package each: src/, dist/ (tsc -b), README.md, CHANGELOG.md
 template/          the app template's source of truth (a workspace member); see template/AGENTS.md
-docs/adr/          architecture decisions (ADR-0001: the default app stack)
+docs/adr/          architecture decisions (ADR-0001: the default app stack; ADR-0002: log fields and telemetry)
 scripts/           check-public.ts, check-readmes.ts, release.ts, export-template.ts (+ tests), workflows.test.ts
 .github/workflows/ ci.yml (every push), release.yml (master)
 ```
@@ -26,8 +26,9 @@ one-way push mirror where Actions run; never commit there.
   every release.
 - Nothing instance-specific is hard-coded. Names, URLs, groups, ports and
   timings are config inputs with defaults; the app's `env.server.ts` maps its
-  environment onto them. Only `@viktorbarzin/log` reads an env var
-  (`LOG_LEVEL`), and `@viktorbarzin/pg`'s `pgSettingsFromEnv`/`runMigrateCli`
+  environment onto them. Only `@viktorbarzin/log` reads env vars
+  (`LOG_LEVEL`, and `OTEL_SERVICE_NAME`, `SERVICE_VERSION`,
+  `DEPLOYMENT_ENVIRONMENT` for the service fields), and `@viktorbarzin/pg`'s `pgSettingsFromEnv`/`runMigrateCli`
   read the platform contract when the app asks them to.
 - No package imports `@tanstack/react-start` or `@tanstack/react-router`.
   Start ships breaking changes in minor releases; the packages take a

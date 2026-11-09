@@ -257,7 +257,12 @@ describe.skipIf(!ready)("the built server", () => {
 		const notJson = server.logs.filter((line) => {
 			try {
 				const record = JSON.parse(line) as Record<string, unknown>;
-				return !(record.ts && record.level && record.logger && "msg" in record);
+				return !(
+					record.timestamp &&
+					record.severity_text &&
+					record["logger.name"] &&
+					"body" in record
+				);
 			} catch {
 				return true;
 			}

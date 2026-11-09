@@ -143,9 +143,11 @@ describe("graceful shutdown", () => {
 			exit: (code) => order.push(`exit ${code}`),
 		});
 		expect(order).toEqual(["streams", "pool", "exit 0"]);
-		const failed = records.find((r) => r.msg === "shutdown step failed");
-		expect(failed).toMatchObject({ level: "ERROR", step: "listen" });
-		expect(String(failed?.exc)).toContain("LISTEN already gone");
+		const failed = records.find((r) => r.body === "shutdown step failed");
+		expect(failed).toMatchObject({ severity_text: "ERROR", step: "listen" });
+		expect(String(failed?.["exception.message"])).toContain(
+			"LISTEN already gone",
+		);
 	});
 });
 
@@ -206,8 +208,8 @@ describe("error envelope", () => {
 			'{"error":{"code":"internal_error","message":"internal server error"}}',
 		);
 		expect(records[0]).toMatchObject({
-			level: "ERROR",
-			msg: "unhandled error",
+			severity_text: "ERROR",
+			body: "unhandled error",
 			path: "/api/items",
 			method: "POST",
 		});

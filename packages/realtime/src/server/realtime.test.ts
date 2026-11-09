@@ -149,7 +149,7 @@ describe.skipIf(!adminUrl)("createRealtime", () => {
 			restore();
 			setLogLevel("WARNING");
 		}
-		const messages = lines.map((l) => JSON.parse(l).msg);
+		const messages = lines.map((l) => JSON.parse(l).body);
 		expect(messages).toContain("realtime event too large; dropped");
 		expect(messages).toContain("realtime event not sent");
 	});

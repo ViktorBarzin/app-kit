@@ -1,7 +1,7 @@
 {
 	"name": "@viktorbarzin/log",
 	"version": "0.1.0",
-	"description": "JSON-lines logger for the homelab app platform: ts, level, logger, msg, extras, exc.",
+	"description": "JSON-lines logger with OpenTelemetry log field names: timestamp, severity, body, service, trace and enduser context, exception fields.",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",

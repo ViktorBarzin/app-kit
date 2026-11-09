@@ -91,9 +91,9 @@ describe("observeRequest", () => {
 		expect(text).toContain(
 			`http_request_duration_seconds_count{method="POST",handler="${handler}"} 1`,
 		);
-		const line = records.find((r) => r.logger === "app.http");
+		const line = records.find((r) => r["logger.name"] === "app.http");
 		expect(line).toMatchObject({
-			msg: "request",
+			body: "request",
 			method: "POST",
 			path: handler,
 			status: 201,
@@ -111,7 +111,7 @@ describe("observeRequest", () => {
 		done(500);
 		done(500);
 		expect(requestsInFlight()).toBe(before);
-		expect(records.filter((r) => r.logger === "app.http")).toEqual([]);
+		expect(records.filter((r) => r["logger.name"] === "app.http")).toEqual([]);
 	});
 });
 
@@ -124,7 +124,7 @@ describe("parseMetricsPort", () => {
 		expect(parseMetricsPort("0")).toBe(0);
 		expect(parseMetricsPort("70000")).toBeNull();
 		expect(parseMetricsPort("abc")).toBeNull();
-		expect(records.filter((r) => r.level === "ERROR")).toHaveLength(2);
+		expect(records.filter((r) => r.severity_text === "ERROR")).toHaveLength(2);
 	});
 });
 
