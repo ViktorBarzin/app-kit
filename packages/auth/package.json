@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/auth",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "App-side OIDC sign-in with Better Auth against Authentik: sessions, bearer tokens, membership re-checks, request and approve, CSRF origin checks.",
 	"license": "MIT",
 	"type": "module",
@@ -45,10 +45,10 @@
 		"jose": "^6.2.12"
 	},
 	"peerDependencies": {
-		"@viktorbarzin/log": "^0.1.0",
-		"@viktorbarzin/runtime": "^0.1.0",
-		"@viktorbarzin/metrics": "^0.1.0",
-		"@viktorbarzin/oidc-token": "^0.1.0",
+		"@viktorbarzin/log": "^1.0.0",
+		"@viktorbarzin/runtime": "^1.0.0",
+		"@viktorbarzin/metrics": "^1.0.0",
+		"@viktorbarzin/oidc-token": "^1.0.0",
 		"better-auth": ">=1.7.7 <1.8.0",
 		"drizzle-orm": "^0.45.0",
 		"prom-client": "^15.1.0"

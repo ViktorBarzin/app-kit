@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/oidc-token",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "Verifies OIDC-issued JWT bearer tokens: pinned RS256, issuer from discovery, audience, exp and sub.",
 	"license": "MIT",
 	"type": "module",
@@ -37,7 +37,7 @@
 		"jose": "^6.2.12"
 	},
 	"peerDependencies": {
-		"@viktorbarzin/log": "^0.1.0"
+		"@viktorbarzin/log": "^1.0.0"
 	},
 	"peerDependenciesMeta": {
 		"@viktorbarzin/log": {

@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/realtime",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "Postgres LISTEN/NOTIFY to Server-Sent Events: one health-checked LISTEN per pod, an SSE hub, a reconnecting browser client and a TanStack Query invalidation hook.",
 	"license": "MIT",
 	"type": "module",
@@ -40,9 +40,9 @@
 		"test": "bun test"
 	},
 	"peerDependencies": {
-		"@viktorbarzin/log": "^0.1.0",
-		"@viktorbarzin/runtime": "^0.1.0",
-		"@viktorbarzin/metrics": "^0.1.0",
+		"@viktorbarzin/log": "^1.0.0",
+		"@viktorbarzin/runtime": "^1.0.0",
+		"@viktorbarzin/metrics": "^1.0.0",
 		"prom-client": "^15.1.0",
 		"drizzle-orm": "^0.45.0",
 		"react": "^19.0.0",

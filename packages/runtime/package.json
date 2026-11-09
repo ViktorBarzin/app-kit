@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/runtime",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "Process plumbing for Bun apps: process singletons, idle timeouts, request drain, graceful shutdown, the /api error envelope and zod body validation.",
 	"license": "MIT",
 	"type": "module",
@@ -34,7 +34,7 @@
 		"test": "bun test"
 	},
 	"peerDependencies": {
-		"@viktorbarzin/log": "^0.1.0",
+		"@viktorbarzin/log": "^1.0.0",
 		"zod": "^4.6.0"
 	},
 	"devDependencies": {

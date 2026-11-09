@@ -50,8 +50,10 @@ describe("copyTemplate", () => {
 		await copyTemplate(target);
 		const manifest = await readFile(join(target, "package.json"), "utf8");
 		expect(manifest).not.toContain("workspace:");
+		const authVersion = (await Bun.file("packages/auth/package.json").json())
+			.version as string;
 		expect(JSON.parse(manifest).dependencies["@viktorbarzin/auth"]).toBe(
-			"^0.1.0",
+			`^${authVersion}`,
 		);
 		expect(existsSync(join(target, "node_modules"))).toBe(false);
 		expect(existsSync(join(target, ".output"))).toBe(false);

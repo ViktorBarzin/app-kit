@@ -147,8 +147,10 @@ describe("the workspace", () => {
 			"package/package.json",
 		]).stdout.toString();
 		expect(manifest).not.toContain("workspace:");
-		expect(JSON.parse(manifest).devDependencies["@viktorbarzin/log"]).toMatch(
-			/^\^0\.1\.0$/,
+		const logVersion = (await Bun.file("packages/log/package.json").json())
+			.version as string;
+		expect(JSON.parse(manifest).devDependencies["@viktorbarzin/log"]).toBe(
+			`^${logVersion}`,
 		);
 	}, 60_000);
 });

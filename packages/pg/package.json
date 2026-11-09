@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/pg",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "Drizzle on Bun SQL: a small pool that re-reads a rotated password file, migrations under an advisory lock, a migrate CLI and throwaway test databases.",
 	"license": "MIT",
 	"type": "module",
@@ -38,8 +38,8 @@
 		"test": "bun test"
 	},
 	"peerDependencies": {
-		"@viktorbarzin/log": "^0.1.0",
-		"@viktorbarzin/runtime": "^0.1.0",
+		"@viktorbarzin/log": "^1.0.0",
+		"@viktorbarzin/runtime": "^1.0.0",
 		"drizzle-orm": "^0.45.0"
 	},
 	"devDependencies": {

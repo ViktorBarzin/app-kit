@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/metrics",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "One prom-client registry per process, HTTP request metrics and a /metrics listener on its own port.",
 	"license": "MIT",
 	"type": "module",
@@ -34,8 +34,8 @@
 		"test": "bun test"
 	},
 	"peerDependencies": {
-		"@viktorbarzin/log": "^0.1.0",
-		"@viktorbarzin/runtime": "^0.1.0",
+		"@viktorbarzin/log": "^1.0.0",
+		"@viktorbarzin/runtime": "^1.0.0",
 		"prom-client": "^15.1.0"
 	},
 	"devDependencies": {

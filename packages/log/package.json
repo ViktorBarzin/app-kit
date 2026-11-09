@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/log",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"description": "JSON-lines logger with OpenTelemetry log field names: timestamp, severity, body, service, trace and enduser context, exception fields.",
 	"license": "MIT",
 	"type": "module",
