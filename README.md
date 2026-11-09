@@ -8,13 +8,14 @@ carries only its own domain code.
 
 | Package | What it does |
 |---|---|
-| [`@viktorbarzin/log`](packages/log) | JSON-lines logger (`ts`, `level`, `logger`, `msg`, extras, `exc`) and console redirection |
+| [`@viktorbarzin/log`](packages/log) | JSON-lines logger with OpenTelemetry field names (`timestamp`, `severity_text`, `body`, `service.*`, `enduser.id`, `exception.*`; ADR-0002), per-request log context, console redirection |
 | [`@viktorbarzin/runtime`](packages/runtime) | process singletons, Bun idle timeouts, request drain, graceful shutdown, the `/api` error envelope, zod validation, anti-framing headers |
 | [`@viktorbarzin/metrics`](packages/metrics) | one prom-client registry per process, HTTP request metrics, `/metrics` on its own port |
 | [`@viktorbarzin/pg`](packages/pg) | Drizzle on Bun SQL with a rotating password file, migrations under an advisory lock, a migrate CLI, test databases |
 | [`@viktorbarzin/oidc-token`](packages/oidc-token) | OIDC bearer-token verification (RS256, issuer, audience, exp) |
 | [`@viktorbarzin/auth`](packages/auth) | Better Auth sign-in against Authentik, sessions, membership re-checks, request and approve, CSRF checks |
 | [`@viktorbarzin/realtime`](packages/realtime) | one LISTEN connection per pod, an SSE hub, a reconnecting browser client, a TanStack Query hook |
+| [`@viktorbarzin/telemetry`](packages/telemetry) | the Rybbit script, Segment clients (browser and server) pointed at the app's own ingest path, Sentry init, event-name and property checks |
 
 [`template/`](template) is the source of truth for the app template. It is a
 workspace member that uses the packages through `workspace:^`, so a package
@@ -77,9 +78,9 @@ hand once.
 1. Create the free npm organisation `viktorbarzin` on npmjs.com.
 2. Publish the first version of each package by hand, from a clean checkout of
    master: `bun install && bun run build && bun scripts/release.ts --pack-only .packs`,
-   then `npm publish .packs/<tarball> --access public` for each of the seven
-   tarballs (log, runtime, metrics, pg, oidc-token, auth, realtime, in that
-   order). This first version has no provenance statement.
+   then `npm publish .packs/<tarball> --access public` for each of the eight
+   tarballs (log, runtime, metrics, pg, oidc-token, auth, realtime,
+   telemetry, in that order). This first version has no provenance statement.
 3. For each package on npmjs.com, Settings, Trusted Publisher, GitHub Actions:
    organisation or user `ViktorBarzin`, repository `app-kit`, workflow
    filename `release.yml`, environment `npm-publish`. Publishers created after

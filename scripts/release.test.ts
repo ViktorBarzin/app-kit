@@ -107,7 +107,7 @@ describe("the release plan file", () => {
 });
 
 describe("the workspace", () => {
-	test("lists the seven packages with their internal dependencies", async () => {
+	test("lists the eight packages with their internal dependencies", async () => {
 		const packages = await listPackages();
 		expect(packages.map((p) => p.name).sort()).toEqual([
 			"@viktorbarzin/auth",
@@ -117,6 +117,7 @@ describe("the workspace", () => {
 			"@viktorbarzin/pg",
 			"@viktorbarzin/realtime",
 			"@viktorbarzin/runtime",
+			"@viktorbarzin/telemetry",
 		]);
 		expect(
 			packages.find((p) => p.name === "@viktorbarzin/runtime")?.internalDeps,

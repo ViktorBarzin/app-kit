@@ -1,0 +1,281 @@
+import { describe, expect, test } from "bun:test";
+import fc from "fast-check";
+
+import {
+	type BrowserRuntime,
+	createBrowserTelemetry,
+	type RybbitLike,
+	rybbitScriptAttributes,
+	type SegmentLike,
+	type SegmentLoadArgs,
+	type SentryBrowserLike,
+	segmentLoadArgs,
+} from "./core.js";
+
+interface Fake {
+	runtime: BrowserRuntime;
+	scripts: Record<string, string>[];
+	loads: SegmentLoadArgs[];
+	segment: string[][];
+	rybbit: string[][];
+	sentry: string[][];
+	warnings: string[];
+	loadScript(): void;
+}
+
+function fake(hostname: string, port = ""): Fake {
+	const scripts: Record<string, string>[] = [];
+	const loads: SegmentLoadArgs[] = [];
+	const segment: string[][] = [];
+	const rybbit: string[][] = [];
+	const warnings: string[] = [];
+	const onLoads: (() => void)[] = [];
+	let rybbitApi: RybbitLike | undefined;
+	const segmentApi: SegmentLike = {
+		track: (name, properties) =>
+			void segment.push(["track", name, JSON.stringify(properties)]),
+		identify: (id, traits) =>
+			void segment.push(["identify", id, JSON.stringify(traits)]),
+		reset: () => void segment.push(["reset"]),
+	};
+	const f: Fake = {
+		scripts,
+		loads,
+		segment,
+		rybbit,
+		sentry: [],
+		warnings,
+		runtime: {
+			hostname,
+			host: port ? `${hostname}:${port}` : hostname,
+			injectScript: (attributes, onLoad) => {
+				scripts.push(attributes);
+				onLoads.push(onLoad);
+			},
+			rybbit: () => rybbitApi,
+			loadSegment: async (args) => {
+				loads.push(args);
+				return segmentApi;
+			},
+			warn: (message) => void warnings.push(message),
+		},
+		loadScript() {
+			rybbitApi = {
+				identify: (id, traits) =>
+					void rybbit.push(["identify", id, JSON.stringify(traits)]),
+				clearUserId: () => void rybbit.push(["clearUserId"]),
+			};
+			for (const fn of onLoads.splice(0)) fn();
+		},
+	};
+	return f;
+}
+
+const base = {
+	writeKey: "wk-test",
+	siteId: 1,
+	release: "abc123",
+	productionHosts: ["example.com"],
+};
+
+function fakeSentry(f: Fake) {
+	return {
+		init: (options: { dsn: string; release: string; environment: string }) =>
+			void f.sentry.push([
+				"init",
+				options.dsn,
+				options.release,
+				options.environment,
+			]),
+		setUser: (user: { id: string } | null) =>
+			void f.sentry.push(["setUser", user?.id ?? "null"]),
+	};
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("rybbitScriptAttributes", () => {
+	test("the script tag: site id, deferred, only password inputs masked", () => {
+		expect(rybbitScriptAttributes("1", "/_t")).toEqual({
+			src: "/_t/r/script.js",
+			"data-site-id": "1",
+			defer: "",
+			"data-replay-mask-all-inputs": "false",
+			"data-replay-mask-input-options": '{"password":true}',
+		});
+	});
+});
+
+describe("segmentLoadArgs", () => {
+	test("inline settings point at the ingest path and turn metrics off", () => {
+		const [settings, options] = segmentLoadArgs("wk", "app.example.com", "/_t");
+		expect(settings).toEqual({
+			writeKey: "wk",
+			cdnURL: "https://app.example.com/_t/e",
+			cdnSettings: {
+				integrations: {
+					"Segment.io": {
+						apiKey: "wk",
+						apiHost: "app.example.com/_t/e/v1",
+						protocol: "https",
+					},
+				},
+				metrics: { sampleRate: 0 },
+			},
+		});
+		expect(options).toEqual({
+			initialPageview: false,
+			integrations: {
+				"Segment.io": {
+					apiHost: "app.example.com/_t/e/v1",
+					protocol: "https",
+				},
+			},
+		});
+	});
+
+	test("the host keeps its port", () => {
+		const [settings] = segmentLoadArgs("wk", "app.example.com:8443", "/_t");
+		expect(settings.cdnSettings?.integrations["Segment.io"].apiHost).toBe(
+			"app.example.com:8443/_t/e/v1",
+		);
+	});
+});
+
+describe("createBrowserTelemetry", () => {
+	test("off a production host it loads nothing and sends nothing", async () => {
+		const f = fake("localhost", "3000");
+		const t = createBrowserTelemetry(
+			{ ...base, dsn: "https://k@example.com/_t/x/1", sentry: fakeSentry(f) },
+			f.runtime,
+		);
+		t.track("item.created", { item_id: 1 });
+		t.identify("sub-1");
+		t.reset();
+		await settle();
+		expect(t.active).toBe(false);
+		expect(f.scripts).toEqual([]);
+		expect(f.loads).toEqual([]);
+		expect(f.segment).toEqual([]);
+		expect(f.sentry).toEqual([]);
+	});
+
+	test("off a production host, an invalid event is reported as a warning", () => {
+		const f = fake("localhost");
+		const t = createBrowserTelemetry(base, f.runtime);
+		t.track("ItemCreated", { itemId: 1 });
+		expect(f.warnings).toEqual([
+			'telemetry: event name is not noun.past_verb: "ItemCreated"',
+		]);
+	});
+
+	test("on a production host it injects the script, loads Segment and initialises Sentry", async () => {
+		const f = fake("app.example.com");
+		const t = createBrowserTelemetry(
+			{
+				...base,
+				dsn: "https://k@app.example.com/_t/x/1",
+				sentry: fakeSentry(f),
+			},
+			f.runtime,
+		);
+		await settle();
+		expect(t.active).toBe(true);
+		expect(f.scripts).toEqual([rybbitScriptAttributes("1", "/_t")]);
+		expect(f.loads).toEqual([
+			segmentLoadArgs("wk-test", "app.example.com", "/_t"),
+		]);
+		expect(f.sentry).toEqual([
+			["init", "https://k@app.example.com/_t/x/1", "abc123", "production"],
+		]);
+	});
+
+	test("track sends valid events, trims bad keys and drops bad names, silently", async () => {
+		const f = fake("example.com");
+		const t = createBrowserTelemetry(base, f.runtime);
+		t.track("item.created", { item_id: 1, itemName: "x" });
+		t.track("Item Created");
+		await settle();
+		expect(f.segment).toEqual([["track", "item.created", '{"item_id":1}']]);
+		expect(f.warnings).toEqual([]);
+	});
+
+	test("identify reaches Segment, Rybbit (once its script has loaded) and Sentry", async () => {
+		const f = fake("app.example.com");
+		const t = createBrowserTelemetry(
+			{ ...base, sentry: fakeSentry(f), dsn: "d" },
+			f.runtime,
+		);
+		t.identify("sub-1", { plan: "free" });
+		await settle();
+		expect(f.rybbit).toEqual([]);
+		f.loadScript();
+		expect(f.segment).toEqual([["identify", "sub-1", '{"plan":"free"}']]);
+		expect(f.rybbit).toEqual([["identify", "sub-1", '{"plan":"free"}']]);
+		expect(f.sentry.at(-1)).toEqual(["setUser", "sub-1"]);
+	});
+
+	test("reset clears the person in all three", async () => {
+		const f = fake("app.example.com");
+		const t = createBrowserTelemetry(
+			{ ...base, sentry: fakeSentry(f), dsn: "d" },
+			f.runtime,
+		);
+		f.loadScript();
+		t.identify("sub-1");
+		t.reset();
+		await settle();
+		expect(f.segment.map((call) => call[0])).toEqual(["identify", "reset"]);
+		expect(f.rybbit.map((call) => call[0])).toEqual([
+			"identify",
+			"clearUserId",
+		]);
+		expect(f.sentry.at(-1)).toEqual(["setUser", "null"]);
+	});
+
+	test("Sentry is left alone without a DSN", async () => {
+		const f = fake("app.example.com");
+		createBrowserTelemetry({ ...base, sentry: fakeSentry(f) }, f.runtime);
+		await settle();
+		expect(f.sentry).toEqual([]);
+	});
+
+	test("a custom ingest path moves the script and the events", async () => {
+		const f = fake("app.example.com");
+		createBrowserTelemetry({ ...base, ingestPath: "/telemetry/" }, f.runtime);
+		await settle();
+		expect(f.scripts[0]?.src).toBe("/telemetry/r/script.js");
+		expect(
+			f.loads[0]?.[0].cdnSettings?.integrations["Segment.io"].apiHost,
+		).toBe("app.example.com/telemetry/e/v1");
+	});
+
+	test("events are only ever sent from production hosts (property)", async () => {
+		const host = fc.oneof(
+			fc.constantFrom(
+				"localhost",
+				"127.0.0.1",
+				"example.org",
+				"badexample.com",
+			),
+			fc.stringMatching(/^[a-z]{1,8}$/).map((l) => `${l}.example.com`),
+		);
+		await fc.assert(
+			fc.asyncProperty(host, async (hostname) => {
+				const f = fake(hostname);
+				const t = createBrowserTelemetry(base, f.runtime);
+				t.track("item.created");
+				await settle();
+				const production = hostname.endsWith(".example.com");
+				expect(f.segment.length > 0).toBe(production);
+				expect(f.scripts.length > 0).toBe(production);
+			}),
+		);
+	});
+});
+
+test("the @sentry/browser module fits SentryBrowserLike (typecheck)", () => {
+	const fits = (module: typeof import("@sentry/browser")): SentryBrowserLike =>
+		module;
+	expect(typeof fits).toBe("function");
+});

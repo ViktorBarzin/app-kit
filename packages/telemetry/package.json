@@ -1,0 +1,62 @@
+{
+	"name": "@viktorbarzin/telemetry",
+	"version": "0.1.0",
+	"description": "Product events, pageviews, session replay and error reports for the homelab app platform: a Rybbit script tag, Segment clients pointed at your own ingest path, and Sentry init.",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./browser": {
+			"types": "./dist/browser/index.d.ts",
+			"default": "./dist/browser/index.js"
+		},
+		"./server": {
+			"types": "./dist/server/index.d.ts",
+			"default": "./dist/server/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"sideEffects": false,
+	"engines": {
+		"bun": ">=1.4.3"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ViktorBarzin/app-kit.git",
+		"directory": "packages/telemetry"
+	},
+	"homepage": "https://github.com/ViktorBarzin/app-kit/tree/master/packages/telemetry#readme",
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@segment/analytics-next": "^1.84.3",
+		"@segment/analytics-node": "^3.1.0"
+	},
+	"peerDependencies": {
+		"@sentry/browser": "^10.0.0 || ^11.0.0",
+		"@sentry/bun": "^10.0.0 || ^11.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@sentry/browser": {
+			"optional": true
+		},
+		"@sentry/bun": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@sentry/browser": "^11.10.0",
+		"@sentry/bun": "^11.10.0"
+	}
+}

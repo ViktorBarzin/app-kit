@@ -7,6 +7,7 @@
 		{ "path": "packages/pg" },
 		{ "path": "packages/oidc-token" },
 		{ "path": "packages/auth" },
-		{ "path": "packages/realtime" }
+		{ "path": "packages/realtime" },
+		{ "path": "packages/telemetry" }
 	]
 }
