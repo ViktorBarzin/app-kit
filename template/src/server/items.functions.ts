@@ -8,9 +8,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { CLIENT_ID_HEADER } from "@viktorbarzin/realtime/client";
 import { sanitizeClientId } from "@viktorbarzin/realtime/server";
+import { track } from "@viktorbarzin/telemetry/server";
 import { z } from "zod";
 
-import { appAuth } from "./auth.server";
+import { requireMember } from "./auth.server";
 import { pool } from "./db.server";
 import {
 	addItem as addItemFor,
@@ -19,7 +20,7 @@ import {
 
 /** The signed-in member's items, newest first. */
 export const listItems = createServerFn({ method: "GET" }).handler(async () => {
-	const user = await appAuth.requireUser(getRequest());
+	const user = await requireMember(getRequest());
 	return listItemsFor(pool.getDb(), user.sub ?? user.username);
 });
 
@@ -28,12 +29,16 @@ export const addItem = createServerFn({ method: "POST" })
 	.validator(z.object({ title: z.string().trim().min(1).max(200) }))
 	.handler(async ({ data }) => {
 		const request = getRequest();
-		const user = await appAuth.requireUser(request);
+		const user = await requireMember(request);
 		const source = sanitizeClientId(request.headers.get(CLIENT_ID_HEADER));
-		return addItemFor(
+		const item = await addItemFor(
 			pool.getDb(),
 			user.sub ?? user.username,
 			data.title,
 			source,
 		);
+		// A product event (noun.past_verb, snake_case properties); a no-op
+		// while telemetry is off.
+		if (user.sub) track({ event: "item.created", userId: user.sub });
+		return item;
 	});

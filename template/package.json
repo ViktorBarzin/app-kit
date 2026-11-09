@@ -23,6 +23,8 @@
 		"rename": "bun scripts/rename.ts"
 	},
 	"dependencies": {
+		"@sentry/browser": "^11.10.0",
+		"@sentry/bun": "^11.10.0",
 		"@tailwindcss/vite": "^4.1.18",
 		"@tanstack/react-query": "5.104.2",
 		"@tanstack/react-router": "1.170.44",
@@ -35,6 +37,7 @@
 		"@viktorbarzin/pg": "workspace:^",
 		"@viktorbarzin/realtime": "workspace:^",
 		"@viktorbarzin/runtime": "workspace:^",
+		"@viktorbarzin/telemetry": "workspace:^",
 		"better-auth": "1.7.7",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",

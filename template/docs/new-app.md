@@ -78,7 +78,26 @@ rename` sets both). Database names use underscores where the slug has dashes
    the deploy sets the image on both the `migrate` init container and the app
    container.
 
-6. **Check it live**: `homelab deploy wait starter/starter`, then sign in at
+6. **Telemetry** (on by default; skip to opt out, or set
+   `telemetry.enabled: false` in `src/app.config.ts`). Follow the infra
+   runbook `docs/runbooks/product-analytics.md`, "Add an Instrumented app":
+   a write key in `secret/rybbit` `write_keys`, `starter` in
+   `local.analytics_apps` of `stacks/rybbit/event_pipeline.tf`, and a
+   GlitchTip project with its DSN in `secret/glitchtip` `dsn_starter`. Copy
+   both into `secret/starter` as `telemetry_write_key` and `sentry_dsn`, and
+   add to the `module "app"` block:
+
+   ```hcl
+   app_secret_env = {
+     TELEMETRY_WRITE_KEY = "telemetry_write_key"
+     SENTRY_DSN          = "sentry_dsn"
+   }
+   ```
+
+   The other settings have defaults (AGENTS.md, "Telemetry and logs"). Until
+   the write key is set the app sends nothing.
+
+7. **Check it live**: `homelab deploy wait starter/starter`, then sign in at
    `https://starter.viktorbarzin.me`. As the seeded member and admin you see
    the list straight away; other people request access and you approve them
    at `/admin/requests`.

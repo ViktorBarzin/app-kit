@@ -11,6 +11,19 @@ export const app = {
 	agentsGroup: "Starter Agents",
 	/** The Postgres NOTIFY channel for realtime events. */
 	realtimeChannel: "starter_events",
+	/**
+	 * Telemetry (app-kit ADR-0002, infra ADR-0041): pageviews, replay and
+	 * product events go to Rybbit, errors to GlitchTip. On by default for new
+	 * apps; set `enabled: false` here, or TELEMETRY=off in the environment,
+	 * to opt out.
+	 */
+	telemetry: {
+		enabled: true,
+		/** The Rybbit site the first-party apps share. */
+		siteId: "1",
+		/** The browser sends only from this domain and its subdomains. */
+		productionHosts: ["viktorbarzin.me"],
+	},
 	/** migrationLockKey("starter") from @viktorbarzin/pg. */
 	migrationLockKey: -410644299707373464n,
 } as const;

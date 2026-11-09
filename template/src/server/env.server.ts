@@ -72,6 +72,59 @@ export function metricsPort(): number | null {
 	return parseMetricsPort(runtimeEnv.METRICS_PORT);
 }
 
+/** The service fields for logs and telemetry. */
+export function serviceInfo(): {
+	name: string;
+	version: string;
+	environment: string;
+} {
+	return {
+		name: app.slug,
+		// The image sets SERVICE_VERSION to the commit it was built from.
+		version: env("SERVICE_VERSION") ?? "dev",
+		environment:
+			env("DEPLOYMENT_ENVIRONMENT") ??
+			(runtimeEnv.NODE_ENV === "production" ? "production" : "dev"),
+	};
+}
+
+export interface TelemetrySettings {
+	writeKey: string;
+	/** The event pipeline inside the cluster, for server-side events. */
+	eventsUrl: string;
+	siteId: string;
+	/** The app's GlitchTip DSN, `https://<key>@<app host>/_t/x/<project>`. */
+	dsn: string | null;
+	productionHosts: readonly string[];
+	release: string;
+	environment: string;
+}
+
+const OFF = new Set(["off", "false", "0", "no"]);
+
+/**
+ * Telemetry settings, or null when it is off: `app.telemetry.enabled` is
+ * false, TELEMETRY is off, or no write key is configured (local runs, tests).
+ */
+export function telemetrySettings(): TelemetrySettings | null {
+	if (!app.telemetry.enabled) return null;
+	if (OFF.has((env("TELEMETRY") ?? "").toLowerCase())) return null;
+	const writeKey = secret("TELEMETRY_WRITE_KEY");
+	if (writeKey === null) return null;
+	const service = serviceInfo();
+	return {
+		writeKey,
+		eventsUrl:
+			env("TELEMETRY_EVENTS_URL") ??
+			"http://event-pipeline.rybbit.svc.cluster.local",
+		siteId: env("TELEMETRY_SITE_ID") ?? app.telemetry.siteId,
+		dsn: env("SENTRY_DSN"),
+		productionHosts: app.telemetry.productionHosts,
+		release: service.version,
+		environment: service.environment,
+	};
+}
+
 /** The identity config. `db` is passed in so this module stays free of the pool. */
 export function authConfig(db: () => AuthDb): AppAuthConfig {
 	const discoveryUrl = env("OIDC_DISCOVERY_URL");

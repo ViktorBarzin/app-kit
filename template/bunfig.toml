@@ -10,6 +10,7 @@ minimumReleaseAgeExcludes = [
 	"@viktorbarzin/oidc-token",
 	"@viktorbarzin/auth",
 	"@viktorbarzin/realtime",
+	"@viktorbarzin/telemetry",
 ]
 
 [test]

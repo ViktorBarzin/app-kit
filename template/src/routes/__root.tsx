@@ -8,6 +8,8 @@ import {
 import type { ReactNode } from "react";
 
 import { app } from "#/app.config";
+import { Telemetry } from "#/components/telemetry";
+import { getTelemetrySettings } from "#/server/telemetry.functions";
 import appCss from "../styles.css?url";
 
 interface RouterContext {
@@ -23,9 +25,21 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 		],
 		links: [{ rel: "stylesheet", href: appCss }],
 	}),
+	// Telemetry settings, once per document load (sign-in reloads the page).
+	loader: () => getTelemetrySettings(),
+	staleTime: Number.POSITIVE_INFINITY,
 	shellComponent: RootDocument,
-	component: Outlet,
+	component: Root,
 });
+
+function Root() {
+	return (
+		<>
+			<Telemetry settings={Route.useLoaderData()} />
+			<Outlet />
+		</>
+	);
+}
 
 function RootDocument({ children }: { children: ReactNode }) {
 	return (

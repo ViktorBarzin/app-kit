@@ -6,8 +6,12 @@
  *
  * Env: DATABASE_URL, DATABASE_PASSWORD_FILE, MIGRATIONS_DIR (default ./drizzle).
  */
+import { setLogService } from "@viktorbarzin/log";
 import { runMigrateCli } from "@viktorbarzin/pg";
 
 import { app } from "#/app.config";
+import { serviceInfo } from "#/server/env.server";
+
+setLogService(serviceInfo());
 
 process.exitCode = await runMigrateCli({ lockKey: app.migrationLockKey });

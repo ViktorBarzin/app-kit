@@ -147,6 +147,8 @@ jobs:
           # Single-manifest images (no provenance/SBOM attestation children) so
           # registry retention can never orphan index children (ADR-0002).
           provenance: false
+          build-args: |
+            SERVICE_VERSION=${{ steps.meta.outputs.sha }}
           tags: |
             ghcr.io/viktorbarzin/starter:${{ steps.meta.outputs.sha }}
             ghcr.io/viktorbarzin/starter:latest

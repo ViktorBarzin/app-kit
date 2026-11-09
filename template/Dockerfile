@@ -16,6 +16,9 @@ RUN bun run build
 # --- runtime: distroless Bun, non-root, only the build output
 FROM oven/bun:1.4.3-distroless
 WORKDIR /app
+# SERVICE_VERSION: the commit the image is built from (build.yml passes it);
+# logs carry it as service.version and telemetry as the release.
+ARG SERVICE_VERSION=dev
 # METRICS_PORT: /metrics on its own port, never routed by the ingress.
 # NO_COLOR: srvx's shutdown lines without ANSI codes.
 ENV NODE_ENV=production \
@@ -23,7 +26,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     METRICS_PORT=9090 \
     NO_COLOR=1 \
-    MIGRATIONS_DIR=/app/drizzle
+    MIGRATIONS_DIR=/app/drizzle \
+    SERVICE_VERSION=${SERVICE_VERSION}
 COPY --from=build /src/.output/ ./
 COPY --from=build /src/drizzle/ ./drizzle/
 USER 10001:10001

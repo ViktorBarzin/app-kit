@@ -77,13 +77,14 @@ calling it done.
 
 | Package | Owns | Wired in |
 |---|---|---|
-| `@viktorbarzin/log` | JSON-lines logs (`ts`, `level`, `logger`, `msg`, extras, `exc`), console redirection | everywhere, `nitro-plugin.server.ts` |
+| `@viktorbarzin/log` | JSON-lines logs with OpenTelemetry field names (app-kit ADR-0002), the per-request log context, console redirection | everywhere, `nitro-plugin.server.ts`, `start.ts`, `auth.server.ts` |
 | `@viktorbarzin/runtime` | process singletons, idle timeout, drain and shutdown, error envelope, zod body/query validation, anti-framing headers, `/healthz` | `start.ts`, `nitro-plugin.server.ts`, `/api` routes |
 | `@viktorbarzin/metrics` | the process registry, `http_requests_total` and `http_request_duration_seconds`, `/metrics` on METRICS_PORT | `start.ts`, `nitro-plugin.server.ts` |
 | `@viktorbarzin/pg` | the pool (password file re-read per connection), migrations under an advisory lock, the migrate CLI, test databases | `db.server.ts`, `entrypoints/migrate.ts` |
 | `@viktorbarzin/oidc-token` | bearer JWT verification (RS256, issuer, audience, exp) | through `@viktorbarzin/auth` |
 | `@viktorbarzin/auth` | Better Auth sign-in, sessions, membership re-checks, request + approve, CSRF | `auth.server.ts`, `routes/api/auth/*`, `start.ts` |
 | `@viktorbarzin/realtime` | LISTEN/NOTIFY, the SSE hub, the browser client, the query-invalidation hook | `realtime.server.ts`, `routes/api/events.ts`, `routes/index.tsx` |
+| `@viktorbarzin/telemetry` | the Rybbit script (pageviews, replay), product events, Sentry init | `components/telemetry.tsx`, `routes/__root.tsx`, `nitro-plugin.server.ts` |
 
 Only `src/server/env.server.ts` reads `process.env`. It maps the Terraform
 app module's env contract onto the package configs.
@@ -92,6 +93,39 @@ The packages keep TanStack Start out of their dependencies: they take a
 `Request` and return a `Response` or data, and this app wires them into
 middleware and routes. Start ships breaking changes in minor releases, so it
 is pinned to an exact version here and upgraded by hand.
+
+## Telemetry and logs
+
+Telemetry is on by default (app-kit ADR-0002, infra ADR-0041). It starts
+whenever `TELEMETRY_WRITE_KEY` (or `TELEMETRY_WRITE_KEY_FILE`) is set, and
+stays off in local runs and tests, which have no key.
+
+| Env | Meaning | Default |
+|---|---|---|
+| `TELEMETRY_WRITE_KEY` | the app's write key, Vault `secret/rybbit` `write_keys` | unset: telemetry off |
+| `SENTRY_DSN` | the GlitchTip DSN, `https://<key>@<app host>/_t/x/<project>` | unset: no error reports |
+| `TELEMETRY_SITE_ID` | the Rybbit site | `app.telemetry.siteId` (1) |
+| `TELEMETRY_EVENTS_URL` | the event pipeline, for server-side events | `http://event-pipeline.rybbit.svc.cluster.local` |
+| `SERVICE_VERSION` | the release, set in the image by `build.yml` | `dev` |
+| `DEPLOYMENT_ENVIRONMENT` | `deployment.environment.name` | `production` when `NODE_ENV=production`, else `dev` |
+| `TELEMETRY` | `off` to opt out at run time | on |
+
+To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
+
+- The browser loads the Rybbit script and the Segment client only on the
+  production hosts in `app.telemetry.productionHosts`, so local dev sends
+  nothing. Pageviews and replay need no code.
+- Product events are `noun.past_verb` with snake_case property keys:
+  `track("item.created", { item_id })` from `@viktorbarzin/telemetry/browser`
+  in components, or `track({ event, properties, userId })` from
+  `@viktorbarzin/telemetry/server` in server code (see `items.functions.ts`).
+  Both drop events the pipeline would reject; the server logs why.
+- Sign-in reloads the page, and `components/telemetry.tsx` then identifies
+  the person by their `sub`. Call `reset()` from the browser entry on
+  sign-out.
+- Use `requireMember` from `auth.server.ts` in server functions: it puts the
+  person's `sub` on the request's log lines as `enduser.id`. Extras you pass
+  to a logger are snake_case.
 
 ## Database
 

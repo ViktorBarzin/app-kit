@@ -1,11 +1,12 @@
 /**
- * The env contract: DEV_USER stands in only in development and test, and
- * SIGNUP_MODE follows the Terraform module's signup_mode.
+ * The env contract: DEV_USER stands in only in development and test,
+ * SIGNUP_MODE follows the Terraform module's signup_mode, and telemetry is on
+ * whenever a write key is configured, unless TELEMETRY=off.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { type AuthDb, createAppAuth } from "@viktorbarzin/auth";
 
-import { authConfig } from "./env.server";
+import { authConfig, serviceInfo, telemetrySettings } from "./env.server";
 
 const saved = { ...process.env };
 afterEach(() => {
@@ -61,5 +62,87 @@ describe("SIGNUP_MODE", () => {
 	test("an unknown mode is a configuration error", () => {
 		setEnv({ SIGNUP_MODE: "closed" });
 		expect(() => authConfig(noDb)).toThrow("SIGNUP_MODE");
+	});
+});
+
+describe("telemetry", () => {
+	const keyed = { TELEMETRY: undefined, TELEMETRY_WRITE_KEY: "wk" };
+
+	test("off without a write key", () => {
+		setEnv({
+			TELEMETRY_WRITE_KEY: undefined,
+			TELEMETRY_WRITE_KEY_FILE: undefined,
+		});
+		expect(telemetrySettings()).toBeNull();
+	});
+
+	test("on with a write key, with the platform defaults", () => {
+		setEnv({
+			...keyed,
+			TELEMETRY_EVENTS_URL: undefined,
+			TELEMETRY_SITE_ID: undefined,
+			SENTRY_DSN: undefined,
+		});
+		expect(telemetrySettings()).toMatchObject({
+			writeKey: "wk",
+			eventsUrl: "http://event-pipeline.rybbit.svc.cluster.local",
+			siteId: "1",
+			dsn: null,
+			productionHosts: ["viktorbarzin.me"],
+		});
+	});
+
+	test.each(["off", "OFF", "false", "0"])("TELEMETRY=%p opts out", (value) => {
+		setEnv({ ...keyed, TELEMETRY: value });
+		expect(telemetrySettings()).toBeNull();
+	});
+
+	test("the events URL, site id and DSN come from the environment", () => {
+		setEnv({
+			...keyed,
+			TELEMETRY_EVENTS_URL: "http://pipeline.example.invalid",
+			TELEMETRY_SITE_ID: "7",
+			SENTRY_DSN: "https://k@starter.example/_t/x/3",
+		});
+		expect(telemetrySettings()).toMatchObject({
+			eventsUrl: "http://pipeline.example.invalid",
+			siteId: "7",
+			dsn: "https://k@starter.example/_t/x/3",
+		});
+	});
+});
+
+describe("serviceInfo", () => {
+	test.each<[Record<string, string | undefined>, string, string]>([
+		[
+			{
+				SERVICE_VERSION: "1a2b3c4d",
+				NODE_ENV: "production",
+				DEPLOYMENT_ENVIRONMENT: undefined,
+			},
+			"1a2b3c4d",
+			"production",
+		],
+		[
+			{
+				SERVICE_VERSION: undefined,
+				NODE_ENV: "development",
+				DEPLOYMENT_ENVIRONMENT: undefined,
+			},
+			"dev",
+			"dev",
+		],
+		[
+			{
+				SERVICE_VERSION: undefined,
+				NODE_ENV: "production",
+				DEPLOYMENT_ENVIRONMENT: "staging",
+			},
+			"dev",
+			"staging",
+		],
+	])("%p gives version %p in %p", (values, version, environment) => {
+		setEnv(values);
+		expect(serviceInfo()).toEqual({ name: "starter", version, environment });
 	});
 });
