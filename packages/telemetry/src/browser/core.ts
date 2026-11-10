@@ -12,6 +12,7 @@ import {
 	checkEvent,
 	type EventProperties,
 	isProductionHost,
+	VISITOR_HEADER,
 } from "../index.js";
 
 /** The parts of `@sentry/browser` this package calls. Pass the module itself. */
@@ -41,6 +42,12 @@ export interface BrowserTelemetryConfig {
 	dsn?: string | undefined;
 	/** The `@sentry/browser` module (`import * as Sentry from "@sentry/browser"`). */
 	sentry?: SentryBrowserLike | undefined;
+	/**
+	 * The signed-in person's OIDC `sub`, when the page knows it at start.
+	 * Every init then identifies them in Segment, Rybbit and Sentry, not only
+	 * the page load right after sign-in.
+	 */
+	personId?: string | undefined;
 }
 
 export interface BrowserTelemetry {
@@ -52,6 +59,12 @@ export interface BrowserTelemetry {
 	identify(personId: string, traits?: Record<string, unknown>): void;
 	/** Forget the person, on sign-out. */
 	reset(): void;
+	/**
+	 * `{ "X-Visitor-Id": <Rybbit visitor id> }` for same-origin API calls, so
+	 * server events join this browser's person; `{}` until the id exists and
+	 * off production.
+	 */
+	visitorHeaders(): Record<string, string>;
 }
 
 /** The parts of the Segment browser client this package calls. */
@@ -59,6 +72,7 @@ export interface SegmentLike {
 	track(name: string, properties?: EventProperties): unknown;
 	identify(id: string, traits?: Record<string, unknown>): unknown;
 	reset(): unknown;
+	setAnonymousId(id: string): unknown;
 }
 
 /** The parts of `window.rybbit` this package calls. */
@@ -80,6 +94,8 @@ export interface BrowserRuntime {
 	rybbit(): RybbitLike | undefined;
 	/** `AnalyticsBrowser.load(...args)`, resolved once it is ready to buffer calls. */
 	loadSegment(args: SegmentLoadArgs): Promise<SegmentLike>;
+	/** localStorage `rybbit-visitor-id`, which the Rybbit script creates. */
+	visitorId(): string | undefined;
 	warn(message: string): void;
 }
 
@@ -161,6 +177,7 @@ export function createBrowserTelemetry(
 			track: (name, properties) => void check(name, properties),
 			identify: () => {},
 			reset: () => {},
+			visitorHeaders: () => ({}),
 		};
 
 	const sentry = config.dsn && config.sentry ? config.sentry : undefined;
@@ -177,21 +194,41 @@ export function createBrowserTelemetry(
 		if (rybbit) fn(rybbit);
 		else waitingForRybbit.push(fn);
 	}
-	runtime.injectScript(
-		rybbitScriptAttributes(String(config.siteId), ingestPath),
-		() => {
-			scriptLoaded = true;
-			const rybbit = runtime.rybbit();
-			if (rybbit) for (const fn of waitingForRybbit.splice(0)) fn(rybbit);
-		},
-	);
-
 	const segment = runtime.loadSegment(
 		segmentLoadArgs(config.writeKey, runtime.host, ingestPath),
 	);
 	function withSegment(fn: (analytics: SegmentLike) => void): void {
 		void segment.then(fn, () => {});
 	}
+
+	// Segment's anonymousId is Rybbit's visitor id, so browser events and
+	// pageviews are one person. A returning visitor's id is already stored;
+	// a new visitor's is created when the script runs.
+	let anonymousId: string | undefined;
+	function adoptVisitorId(): void {
+		const id = runtime.visitorId();
+		if (!id || id === anonymousId) return;
+		anonymousId = id;
+		withSegment((a) => a.setAnonymousId(id));
+	}
+	adoptVisitorId();
+
+	runtime.injectScript(
+		rybbitScriptAttributes(String(config.siteId), ingestPath),
+		() => {
+			scriptLoaded = true;
+			adoptVisitorId();
+			const rybbit = runtime.rybbit();
+			if (rybbit) for (const fn of waitingForRybbit.splice(0)) fn(rybbit);
+		},
+	);
+
+	function identify(personId: string, traits?: Record<string, unknown>) {
+		withSegment((a) => a.identify(personId, traits));
+		withRybbit((r) => r.identify(personId, traits));
+		sentry?.setUser({ id: personId });
+	}
+	if (config.personId) identify(config.personId);
 
 	return {
 		active,
@@ -200,15 +237,15 @@ export function createBrowserTelemetry(
 			if (accepted)
 				withSegment((a) => a.track(accepted.event, accepted.properties));
 		},
-		identify(personId, traits) {
-			withSegment((a) => a.identify(personId, traits));
-			withRybbit((r) => r.identify(personId, traits));
-			sentry?.setUser({ id: personId });
-		},
+		identify,
 		reset() {
 			withSegment((a) => a.reset());
 			withRybbit((r) => r.clearUserId());
 			sentry?.setUser(null);
+		},
+		visitorHeaders(): Record<string, string> {
+			const id = runtime.visitorId();
+			return id ? { [VISITOR_HEADER]: id } : {};
 		},
 	};
 }

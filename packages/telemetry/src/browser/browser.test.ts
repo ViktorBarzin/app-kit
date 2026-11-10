@@ -20,7 +20,9 @@ interface Fake {
 	rybbit: string[][];
 	sentry: string[][];
 	warnings: string[];
-	loadScript(): void;
+	/** What localStorage `rybbit-visitor-id` holds; the script sets it on load. */
+	storedVisitorId: string | undefined;
+	loadScript(visitorId?: string): void;
 }
 
 function fake(hostname: string, port = ""): Fake {
@@ -37,6 +39,7 @@ function fake(hostname: string, port = ""): Fake {
 		identify: (id, traits) =>
 			void segment.push(["identify", id, JSON.stringify(traits)]),
 		reset: () => void segment.push(["reset"]),
+		setAnonymousId: (id) => void segment.push(["setAnonymousId", id]),
 	};
 	const f: Fake = {
 		scripts,
@@ -45,6 +48,7 @@ function fake(hostname: string, port = ""): Fake {
 		rybbit,
 		sentry: [],
 		warnings,
+		storedVisitorId: undefined,
 		runtime: {
 			hostname,
 			host: port ? `${hostname}:${port}` : hostname,
@@ -58,8 +62,10 @@ function fake(hostname: string, port = ""): Fake {
 				return segmentApi;
 			},
 			warn: (message) => void warnings.push(message),
+			visitorId: () => f.storedVisitorId,
 		},
-		loadScript() {
+		loadScript(visitorId = "rv-1") {
+			f.storedVisitorId ??= visitorId;
 			rybbitApi = {
 				identify: (id, traits) =>
 					void rybbit.push(["identify", id, JSON.stringify(traits)]),
@@ -225,7 +231,11 @@ describe("createBrowserTelemetry", () => {
 		t.identify("sub-1");
 		t.reset();
 		await settle();
-		expect(f.segment.map((call) => call[0])).toEqual(["identify", "reset"]);
+		expect(f.segment.map((call) => call[0])).toEqual([
+			"setAnonymousId",
+			"identify",
+			"reset",
+		]);
 		expect(f.rybbit.map((call) => call[0])).toEqual([
 			"identify",
 			"clearUserId",
@@ -248,6 +258,72 @@ describe("createBrowserTelemetry", () => {
 		expect(
 			f.loads[0]?.[0].cdnSettings?.integrations["Segment.io"].apiHost,
 		).toBe("app.example.com/telemetry/e/v1");
+	});
+
+	test("once the Rybbit script has run, Segment's anonymousId is its visitor id", async () => {
+		const f = fake("app.example.com");
+		const t = createBrowserTelemetry(base, f.runtime);
+		await settle();
+		expect(t.visitorHeaders()).toEqual({});
+		f.loadScript("rv-9");
+		await settle();
+		expect(f.segment).toEqual([["setAnonymousId", "rv-9"]]);
+		expect(t.visitorHeaders()).toEqual({ "X-Visitor-Id": "rv-9" });
+	});
+
+	test("a returning visitor's stored id is used before the script loads", async () => {
+		const f = fake("app.example.com");
+		f.storedVisitorId = "rv-old";
+		const t = createBrowserTelemetry(base, f.runtime);
+		t.track("item.created");
+		await settle();
+		expect(f.segment[0]).toEqual(["setAnonymousId", "rv-old"]);
+		expect(f.segment[1]?.[0]).toBe("track");
+		expect(t.visitorHeaders()).toEqual({ "X-Visitor-Id": "rv-old" });
+	});
+
+	test("off production there are no visitor headers", () => {
+		const f = fake("localhost");
+		f.storedVisitorId = "rv-1";
+		expect(createBrowserTelemetry(base, f.runtime).visitorHeaders()).toEqual(
+			{},
+		);
+	});
+
+	test("a personId identifies the person on every init (property)", async () => {
+		await fc.assert(
+			fc.asyncProperty(
+				fc.stringMatching(/^[a-f0-9]{8,64}$/),
+				async (personId) => {
+					const f = fake("app.example.com");
+					createBrowserTelemetry(
+						{ ...base, personId, sentry: fakeSentry(f), dsn: "d" },
+						f.runtime,
+					);
+					f.loadScript();
+					await settle();
+					expect(f.rybbit).toEqual([
+						["identify", personId, JSON.stringify(undefined)],
+					]);
+					expect(f.segment).toContainEqual([
+						"identify",
+						personId,
+						JSON.stringify(undefined),
+					]);
+					expect(f.sentry.at(-1)).toEqual(["setUser", personId]);
+				},
+			),
+			{ numRuns: 20 },
+		);
+	});
+
+	test("without a personId nobody is identified", async () => {
+		const f = fake("app.example.com");
+		createBrowserTelemetry(base, f.runtime);
+		f.loadScript();
+		await settle();
+		expect(f.rybbit).toEqual([]);
+		expect(f.segment.map((call) => call[0])).toEqual(["setAnonymousId"]);
 	});
 
 	test("events are only ever sent from production hosts (property)", async () => {

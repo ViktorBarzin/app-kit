@@ -6,7 +6,7 @@
  * `initTelemetry` once at start; then `track`, `identify` and `reset`
  * anywhere. Calls made before `initTelemetry` are dropped.
  */
-import type { EventProperties } from "../index.js";
+import { type EventProperties, VISITOR_STORAGE_KEY } from "../index.js";
 import {
 	type BrowserRuntime,
 	type BrowserTelemetry,
@@ -15,6 +15,7 @@ import {
 	type RybbitLike,
 } from "./core.js";
 
+export { VISITOR_HEADER, VISITOR_STORAGE_KEY } from "../index.js";
 export type {
 	BrowserTelemetry,
 	BrowserTelemetryConfig,
@@ -48,7 +49,16 @@ function domRuntime(): BrowserRuntime {
 				identify: (id, traits) =>
 					analytics.identify(id, traits).catch(() => undefined),
 				reset: () => analytics.reset().catch(() => undefined),
+				setAnonymousId: (id) =>
+					analytics.setAnonymousId(id).catch(() => undefined),
 			};
+		},
+		visitorId() {
+			try {
+				return window.localStorage.getItem(VISITOR_STORAGE_KEY) ?? undefined;
+			} catch {
+				return undefined; // storage blocked
+			}
 		},
 		warn: (message) => console.warn(message),
 	};
@@ -92,4 +102,14 @@ export function identify(
 /** Forget the person, on sign-out. */
 export function reset(): void {
 	current()?.reset();
+}
+
+/**
+ * Headers for same-origin API calls: `{ "X-Visitor-Id": <Rybbit visitor
+ * id> }`, so the server's events join this browser's person, or `{}` before
+ * `initTelemetry`, off production, or until the id exists.
+ * `fetch("/api/items", { headers: { ...visitorHeaders() } })`.
+ */
+export function visitorHeaders(): Record<string, string> {
+	return current()?.visitorHeaders() ?? {};
 }

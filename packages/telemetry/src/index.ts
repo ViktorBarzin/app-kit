@@ -15,6 +15,14 @@ export const MAX_PROPERTIES_LENGTH = 2048;
 
 export type EventProperties = Record<string, unknown>;
 
+/**
+ * The header a browser sets on same-origin API calls to its Rybbit visitor
+ * id, so the server's events join the browser's person in Rybbit.
+ */
+export const VISITOR_HEADER = "X-Visitor-Id";
+/** Where the Rybbit script (namespace `rybbit`) keeps its visitor id. */
+export const VISITOR_STORAGE_KEY = "rybbit-visitor-id";
+
 export interface EventCheck {
 	/** The event to send, with invalid keys removed; null when it cannot be sent. */
 	accepted: { event: string; properties: EventProperties } | null;

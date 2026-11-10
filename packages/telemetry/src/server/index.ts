@@ -9,6 +9,18 @@
 import { Analytics } from "@segment/analytics-node";
 
 import { checkEvent, type EventProperties } from "../index.js";
+import { currentRequestContext } from "./request.js";
+
+export { VISITOR_HEADER } from "../index.js";
+export {
+	currentRequestContext,
+	MAX_USER_AGENT_LENGTH,
+	type RequestContext,
+	type RequestContextOptions,
+	type RequestLike,
+	requestContextFrom,
+	withRequestContext,
+} from "./request.js";
 
 /** The parts of `@sentry/bun` (or `@sentry/node`) this package calls. Pass the module itself. */
 export interface SentryServerLike {
@@ -42,14 +54,25 @@ export interface ServerTelemetryConfig {
 	dsn?: string | undefined;
 	/** The `@sentry/bun` module (`import * as Sentry from "@sentry/bun"`). */
 	sentry?: SentryServerLike | undefined;
+	/**
+	 * The anonymousId of events with neither a person nor a visitor id, e.g.
+	 * from a job. Default `server:<service>` (`server` without a service).
+	 */
+	defaultAnonymousId?: string | undefined;
 	/** Where problems with events and delivery go. Default `console.warn`. */
 	warn?: ((message: string) => void) | undefined;
 }
 
-/** Who the event is about: the person's `sub`, an anonymous id, or both. */
-export type Identity =
-	| { userId: string; anonymousId?: string | undefined }
-	| { userId?: string | undefined; anonymousId: string };
+/**
+ * Who the event is about: the person's `sub`, an anonymous id, both, or
+ * neither. A missing anonymousId is the request's visitor id
+ * (`withRequestContext`); without one, a message with a userId sends none
+ * and one without sends `defaultAnonymousId`. Never a random id per event.
+ */
+export interface Identity {
+	userId?: string | undefined;
+	anonymousId?: string | undefined;
+}
 
 export type TrackParams = {
 	event: string;
@@ -57,8 +80,11 @@ export type TrackParams = {
 } & Identity;
 
 export type IdentifyParams = {
+	/** The person's `sub`. */
+	userId: string;
+	anonymousId?: string | undefined;
 	traits?: Record<string, unknown> | undefined;
-} & Identity;
+};
 
 export interface ServerTelemetry {
 	readonly active: boolean;
@@ -96,6 +122,29 @@ export function createServerTelemetry(
 		warn(`telemetry: delivery failed: ${String(err.reason ?? err.code)}`);
 	});
 
+	const fallbackAnonymousId =
+		config.defaultAnonymousId ??
+		(config.service ? `server:${config.service}` : "server");
+
+	/** The ids that are set, and `context` with the request's sender. */
+	function envelope({ userId, anonymousId }: Identity) {
+		const request = currentRequestContext();
+		const anon =
+			anonymousId ??
+			request.visitorId ??
+			(userId === undefined ? fallbackAnonymousId : undefined);
+		const ids =
+			userId === undefined
+				? { anonymousId: anon ?? fallbackAnonymousId }
+				: { userId, ...(anon === undefined ? {} : { anonymousId: anon }) };
+		const context = {
+			app,
+			...(request.clientIp ? { ip: request.clientIp } : {}),
+			...(request.userAgent ? { userAgent: request.userAgent } : {}),
+		};
+		return { ...ids, context };
+	}
+
 	const sentry = active && config.dsn && config.sentry ? config.sentry : null;
 	sentry?.init({
 		dsn: config.dsn ?? "",
@@ -110,17 +159,15 @@ export function createServerTelemetry(
 			for (const problem of result.problems) warn(`telemetry: ${problem}`);
 			if (!analytics || !result.accepted) return;
 			analytics.track({
-				...identity(params),
+				...envelope(params),
 				event: result.accepted.event,
 				properties: result.accepted.properties,
-				context: { app },
 			});
 		},
 		identify(params) {
 			analytics?.identify({
-				...identity(params),
+				...envelope(params),
 				...(params.traits ? { traits: params.traits } : {}),
-				context: { app },
 			});
 		},
 		async flush() {
@@ -133,14 +180,6 @@ export function createServerTelemetry(
 			]);
 		},
 	};
-}
-
-/** Only the ids that are set: the SDK refuses a message with neither. */
-function identity({ userId, anonymousId }: Identity): Identity {
-	if (userId !== undefined)
-		return anonymousId !== undefined ? { userId, anonymousId } : { userId };
-	if (anonymousId !== undefined) return { anonymousId };
-	throw new Error("telemetry: a message needs userId or anonymousId");
 }
 
 const SLOT = Symbol.for("@viktorbarzin:telemetry-server");

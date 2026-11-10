@@ -14,8 +14,8 @@ Three entry points:
 
 | Import | For |
 |---|---|
-| `@viktorbarzin/telemetry/browser` | `initTelemetry`, `track`, `identify`, `reset` |
-| `@viktorbarzin/telemetry/server` | `initServerTelemetry`, `track`, `identify`, `flush`, `closeAndFlush` (Bun or Node) |
+| `@viktorbarzin/telemetry/browser` | `initTelemetry`, `track`, `identify`, `reset`, `visitorHeaders` |
+| `@viktorbarzin/telemetry/server` | `initServerTelemetry`, `track`, `identify`, `flush`, `closeAndFlush`, `withRequestContext` (Bun or Node) |
 | `@viktorbarzin/telemetry` | the shared checks: `checkEvent`, `isProductionHost`, the patterns |
 
 ## Browser
@@ -25,10 +25,17 @@ declare const writeKey: string;
 declare const release: string;
 declare const dsn: string | undefined;
 declare const sub: string;
+declare const signedInSub: string | undefined;
 -->
 ```ts
 import * as Sentry from "@sentry/browser";
-import { identify, initTelemetry, reset, track } from "@viktorbarzin/telemetry/browser";
+import {
+	identify,
+	initTelemetry,
+	reset,
+	track,
+	visitorHeaders,
+} from "@viktorbarzin/telemetry/browser";
 
 initTelemetry({
 	writeKey,
@@ -37,10 +44,12 @@ initTelemetry({
 	productionHosts: ["example.com"], // example.com and *.example.com
 	dsn, // https://<key>@<app host>/_t/x/<project>
 	sentry: Sentry,
+	personId: signedInSub, // the signed-in person's OIDC sub, if the page knows it
 });
 
-identify(sub); // after sign-in: the person's OIDC sub
+identify(sub); // right after sign-in: the person's OIDC sub
 track("recording.started", { channel_id: 4 });
+await fetch("/api/items", { headers: { ...visitorHeaders() } });
 reset(); // on sign-out
 ```
 
@@ -60,7 +69,17 @@ event the pipeline would reject. On a production host it:
   optional peer: an app that does not pass it does not bundle it.
 
 `identify` sets the person in Segment, Rybbit (`window.rybbit.identify`,
-after the script has loaded) and Sentry. `reset` clears all three.
+after the script has loaded) and Sentry. `reset` clears all three. With
+`personId`, every `initTelemetry` identifies the person, so a session that
+started signed in is tied to them too, not only the page load after sign-in.
+
+Segment's anonymousId is the Rybbit script's visitor id (localStorage
+`rybbit-visitor-id`): a returning visitor's at start, a new visitor's once
+the script has run and created it. `visitorHeaders()` returns
+`{ "X-Visitor-Id": <that id> }` for same-origin API calls, or `{}` before it
+exists and off production. The server client reads the header and uses it as
+the anonymousId of events sent while handling the call, so they land on the
+same Rybbit user as the browser's pageviews.
 
 ## Server
 
@@ -87,9 +106,37 @@ track({ event: "trip.created", properties: { trip_id: 12 }, userId: "the person'
 process.on("SIGTERM", () => void closeAndFlush());
 ```
 
+### The request's sender
+
+<!-- typecheck-preamble
+declare function handle(request: Request): Promise<Response>;
+-->
+```ts
+import { withRequestContext } from "@viktorbarzin/telemetry/server";
+
+Bun.serve({ fetch: (request) => withRequestContext(request, () => handle(request)) });
+```
+
+In TanStack Start, a global request middleware in `src/start.ts`:
+`createMiddleware().server(({ request, next }) => withRequestContext(request, next))`.
+Nitro and Node handlers pass any object with `headers`, plus `{ peer }` for
+the socket address. Inside it, every `track` and `identify`, through every
+await, gets:
+
+| Field | Value |
+|---|---|
+| `anonymousId` | the explicit one, else `X-Visitor-Id`. Without either: none when `userId` is set, else `defaultAnonymousId` (`server:<service>` unless set). Never a new random id per event |
+| `context.ip` | `X-Real-Ip` (set by Traefik's real-ip middleware), else the first `X-Forwarded-For` entry, else `peer` |
+| `context.userAgent` | the request's User-Agent, unless it is a Segment SDK agent, which Rybbit flags as a bot |
+
+The event pipeline maps `context.ip` and `context.userAgent` to Rybbit's IP
+and user agent, so server events get a country and a device.
+`currentRequestContext()` returns what was read.
+
 The client posts batches to `new URL(path, host)` with `path` defaulting to
 `/v1/batch`, so a prefix such as `/_t/e/v1/batch` goes in `path`, not in
-`host`. Every message carries `context.app` (`name`, `version`).
+`host`. Every message carries `context.app` (`name`, `version`). `track`
+needs no id at all; `identify` needs `userId`.
 `enabled: false` keeps the checks and sends nothing.
 
 ## The checks
