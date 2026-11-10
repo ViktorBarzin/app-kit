@@ -20,18 +20,18 @@ describe("requestContextFrom", () => {
 	test.each([
 		[
 			{ "X-Real-Ip": "81.2.69.142", "X-Forwarded-For": "1.1.1.1" },
-			"10.0.0.1",
+			"192.0.2.1",
 			"81.2.69.142",
 		],
-		[{ "X-Forwarded-For": "81.2.69.142, 10.0.0.2" }, "10.0.0.1", "81.2.69.142"],
-		[{ "x-forwarded-for": " 2001:db8::1 ,10.0.0.2" }, undefined, "2001:db8::1"],
-		[{}, "10.0.0.1", "10.0.0.1"],
+		[{ "X-Forwarded-For": "81.2.69.142, 192.0.2.2" }, "192.0.2.1", "81.2.69.142"],
+		[{ "x-forwarded-for": " 2001:db8::1 ,192.0.2.2" }, undefined, "2001:db8::1"],
+		[{}, "192.0.2.1", "192.0.2.1"],
 		[
 			{ "X-Real-Ip": "nope", "X-Forwarded-For": "81.2.69.142" },
 			undefined,
 			"81.2.69.142",
 		],
-		[{ "X-Forwarded-For": "junk" }, "10.0.0.1", "10.0.0.1"],
+		[{ "X-Forwarded-For": "junk" }, "192.0.2.1", "192.0.2.1"],
 		[{}, undefined, undefined],
 	] as const)("client ip from %p, peer %p is %p", (headers, peer, expected) => {
 		const options = peer === undefined ? {} : { peer };
@@ -61,7 +61,7 @@ describe("requestContextFrom", () => {
 				(ips) => {
 					const got = requestContextFrom(
 						req({ "X-Forwarded-For": ips.join(",") }),
-						{ peer: "10.9.9.9" },
+						{ peer: "192.0.2.99" },
 					).clientIp;
 					return got === ips[0];
 				},
