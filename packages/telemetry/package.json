@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/telemetry",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Product events, pageviews, session replay and error reports for the homelab app platform: a Rybbit script tag, Segment clients pointed at your own ingest path, and Sentry init.",
 	"license": "MIT",
 	"type": "module",
