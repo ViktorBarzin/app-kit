@@ -51,9 +51,18 @@ as the pilot.
 
 ```mermaid
 flowchart TD
-  C[Browser, CLI, agent, HA] -- HTTPS, SSE --> APP[TanStack Start on Bun]
-  APP -- OIDC, tokens --> AK[Authentik]
-  APP -- Drizzle --> PG[(Shared Postgres)]
+  B[Browser] -- "HTTPS: pages, server functions, SSE" --> ING[Traefik ingress]
+  X["CLI, agent, Home Assistant"] -- "HTTPS /api with an Authentik JWT" --> ING
+  ING --> APP
+  subgraph pod["App pod"]
+    APP["TanStack Start on Bun<br/>React UI, server functions, /api routes"]
+    RT["realtime package<br/>one LISTEN connection, SSE hub"]
+  end
+  APP -- "OIDC sign-in, membership re-check" --> AK[Authentik]
+  APP -- "Drizzle, bun-sql" --> PG[("Shared CNPG Postgres<br/>one database per app")]
+  RT -- LISTEN --> PG
+  JOBS["pg-boss workers and CronJobs<br/>same image"] --> PG
+  VAULT["Vault static role, through ESO"] -- "rotated password file" --> APP
 ```
 
 ### Language and framework
@@ -80,6 +89,16 @@ flowchart TD
 | Realtime | A shared package. A Postgres trigger or a shared Drizzle mutation helper sends `NOTIFY`; each pod holds one `LISTEN` connection and relays events over one SSE endpoint; a client hook invalidates the matching TanStack Query keys. See the realtime contract below. |
 | Background work | Kubernetes CronJobs and pg-boss workers, using entrypoints bundled with `bun build --target bun` into the same image (the Nitro output has no `node_modules`). pg-boss stores its queue in the app's database. |
 
+How a rotated database password reaches a running pod:
+
+```mermaid
+flowchart TD
+  V["Vault static role<br/>rotates in its weekly slot"] --> E["ESO ExternalSecret<br/>force-synced within seconds by db-rotation-watcher,<br/>15 min poll as fallback"]
+  E --> S[Kubernetes Secret]
+  S --> F[password file mounted in the pod]
+  F --> C["each new Postgres connection reads the file<br/>no restart"]
+```
+
 **Realtime contract.** `NOTIFY` is not durable: an event sent while a listener is
 reconnecting (a CNPG failover or restart, a pod restart, an SSE reconnect) is
 lost. The package therefore:
@@ -94,6 +113,24 @@ lost. The package therefore:
 - exports `realtime_listen_connected` and `realtime_last_notify_age_seconds`,
   and the platform alerts on `pg_notification_queue_usage()` above 50%, since
   the `NOTIFY` queue is shared by every database on the cluster
+
+```mermaid
+sequenceDiagram
+  participant B1 as Browser A
+  participant P1 as App pod 1
+  participant PG as Postgres
+  participant P2 as App pod 2
+  participant B2 as Browser B
+  P2->>PG: LISTEN, once at pod start
+  B2->>P2: open the SSE stream, kept open
+  B1->>P1: mutation through a server function
+  P1->>PG: write rows, then NOTIFY with the query keys
+  PG-->>P2: notification
+  P2-->>B2: SSE event invalidate with the keys
+  B2->>P2: refetch the matching TanStack Queries
+  Note over P2,B2: heartbeat every 25 s
+  Note over P2,B2: after a reconnect, refetch all (resync)
+```
 
 Apps that use the realtime package do not enroll in Sablier scale-to-zero
 (infra ADR-0022) until SSE behaviour there is tested.
@@ -113,6 +150,30 @@ Apps that use the realtime package do not enroll in Sablier scale-to-zero
 | API tokens | Authentik-issued JWTs. The shared verifier pins `RS256`, the provider's issuer, `aud` equal to the app's client IDs (Authentik 2026.8.3 sets `aud` to `client_id`) and `exp`. People's CLIs use device-code login, which needs a brand device-code flow (not configured today) and per-provider `grant_types`. Agents and Home Assistant use service accounts placed in a per-app `<App> Agents` group, never in Home Server Admins. |
 | User metrics | Accounts and logins per app from Authentik; in-app activity from the app's own database. |
 
+Web sign-in and the membership re-check, as built in `@viktorbarzin/auth`:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor U as Browser
+  participant A as App, Better Auth
+  participant K as Authentik
+  participant D as App database
+  U->>A: open the app with no session
+  A-->>U: redirect to Authentik
+  U->>K: sign in
+  K-->>U: redirect back with an authorization code
+  U->>A: callback with the code
+  A->>K: exchange the code for tokens
+  A->>A: verify the RS256 id_token, read its groups claim
+  A->>D: store the session and the membership answer
+  A-->>U: __Host- session cookie, 7 day cap
+  Note over A,K: on a request whose stored answer is older than 15 min
+  A->>K: look up the user's groups with a reader token
+  K-->>A: groups
+  A->>D: update membership. Not in the app's Users group means no access
+```
+
 ### Delivery
 
 | Area | Default |
@@ -120,6 +181,19 @@ Apps that use the realtime package do not enroll in Sablier scale-to-zero
 | Shared code | Shared npm packages (auth setup, realtime, token verification, logging and metrics) published as public packages on npmjs.org under the `@viktorbarzin` scope, a free npm organisation. The libraries live in public GitHub repos, pass a gitleaks scan before each release, hold no hostnames, client IDs or secrets, and are published from GitHub Actions with npm trusted publishing (provenance included, no tokens in consumers, no private Actions minutes). Builds therefore work with the homelab down, as infra ADR-0002 requires. The `@homelab` scope belongs to another npm user and is never used. Logging follows the existing JSON-lines contract (`ts`, `level`, `logger`, `msg`, plus extras; superseded by [ADR-0002](0002-otel-log-fields-and-telemetry.md), OpenTelemetry field names) and metrics use the `prometheus.io/*` scrape annotations. |
 | Dependency updates | A separate Renovate job for app repos, with its own repo list and run limit, Bun available to update `bun.lock`, and OSV vulnerability alerts on. Updates land straight on master like infra, and the normal build runs afterwards. App repos wait 3 days before taking a new npm release (infra has no wait); our own packages are excluded. An urgent CVE fix is taken through an exact-version `minimumReleaseAgeExcludes` entry and a manual bump. Nothing waits for review (Viktor, 2026-10-18; until then TanStack Start and Router and the Bun pin were proposed for manual approval). TanStack Start and Router (`@tanstack/*start*`, `@tanstack/*router*`) are pinned to exact versions and land together in one commit; Start ships breaking changes in minor and patch releases, so the app CI's tests, which run before the deploy job, are what stops a breaking bump. The Bun runtime pin, the `oven/bun` base image and CI's `setup-bun` version land together in one commit. |
 | Starting a new app | A template repo plus a reusable Terraform app module, extracted from the pilot. The module owns the Deployment, ingress, ESO secrets and the Authentik application; the database pieces are the map entries described under Provisioning. |
+
+From a push to a running pod, as the template's `build.yml` and `.woodpecker/deploy.yml` do it:
+
+```mermaid
+flowchart TD
+  P[push to master on Forgejo] --> GH[GitHub mirror]
+  GH --> T["GitHub Actions: Biome, typecheck,<br/>bun test, Playwright e2e"]
+  T --> I["image build, pushed to ghcr.io<br/>tagged with the commit SHA and latest"]
+  I -- "Woodpecker API, manual event with IMAGE_TAG" --> W[Woodpecker deploy.yml]
+  W -- "kubectl set image" --> D[Deployment]
+  D --> M["init container migrate<br/>Drizzle migrations under an advisory lock"]
+  M --> R[app container starts]
+```
 
 ### Convex as an exception
 
