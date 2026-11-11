@@ -66,7 +66,10 @@ describe("rename", () => {
 		expect(build).toContain("scope=my-app");
 		expect(build).toContain("package-name: my-app");
 		expect(build).toContain('git config user.name "my-app-ci"');
-		expect(build).toContain("forgejo.viktorbarzin.me/viktor/my-app.git");
+		expect(build).toContain("FORGEJO_REPO: ${{ vars.FORGEJO_REPO || 'viktor/my-app' }}");
+		expect(build).toContain(
+			'git push "https://${FORGEJO_REPO%%/*}:${FORGEJO_GIT_TOKEN}@forgejo.viktorbarzin.me/${FORGEJO_REPO}.git"',
+		);
 		const deploy = await read(dir, ".woodpecker/deploy.yml");
 		expect(deploy).toMatch(
 			/kubectl -n my-app set image deployment\/my-app migrate=ghcr\.io\/viktorbarzin\/my-app:\$\{IMAGE_TAG\} my-app=ghcr\.io\/viktorbarzin\/my-app:\$\{IMAGE_TAG\}/,
