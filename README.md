@@ -6,6 +6,9 @@ app-side OIDC, and realtime over Postgres LISTEN/NOTIFY and Server-Sent
 Events. The packages hold the plumbing every such app needs, so a new app
 carries only its own domain code.
 
+[docs/stack.md](docs/stack.md) is the technical guide to the stack, with
+diagrams.
+
 | Package | What it does |
 |---|---|
 | [`@viktorbarzin/log`](packages/log) | JSON-lines logger with OpenTelemetry field names (`timestamp`, `severity_text`, `body`, `service.*`, `enduser.id`, `exception.*`; ADR-0002), per-request log context, console redirection |
