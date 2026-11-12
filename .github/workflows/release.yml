@@ -112,13 +112,15 @@ jobs:
           set -euo pipefail
           while IFS=$'\t' read -r name version tarball; do
             [ -n "$name" ] || continue
+            # The plan also lists versions only npm lacks; those are already
+            # released and tagged, so skip them here.
             if [ "$(npm view "${name}@${version}" version 2>/dev/null || true)" = "$version" ]; then
               echo "${name}@${version} is already on Forgejo"
-            else
-              npm publish "./release-packs/${tarball}" --provenance=false
+              continue
             fi
+            npm publish "./release-packs/${tarball}" --provenance=false
             tag="${name}@${version}"
-            git tag "$tag" 2>/dev/null || true
+            git tag "$tag"
             git push "https://viktor:${FORGEJO_GIT_TOKEN}@forgejo.viktorbarzin.me/viktor/app-kit.git" "refs/tags/${tag}"
             echo "published ${tag} on Forgejo"
           done < release-packs/release-plan.tsv

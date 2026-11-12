@@ -93,6 +93,11 @@ describe("release.yml", () => {
 		const text = runText(forgejo);
 		expect(text).toContain("npm publish");
 		expect(text).toContain("git push");
+		// A version already on Forgejo is already tagged; re-pushing its tag
+		// is rejected and fails the run.
+		expect(
+			text.indexOf("continue", text.indexOf("already on Forgejo")),
+		).toBeLessThan(text.indexOf("npm publish"));
 		const node = forgejo.steps.find((s) =>
 			s.uses?.startsWith("actions/setup-node@"),
 		);
