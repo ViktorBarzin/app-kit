@@ -1,20 +1,23 @@
 name: Release
 
-# Publishes every @viktorbarzin package whose version is not on npm yet, with
-# npm trusted publishing (OIDC, provenance, no NPM_TOKEN), then tags
-# `<name>@<version>` on Forgejo. Versions are bumped in package.json on
-# Forgejo master (changesets locally); there are no version PRs here because
-# this repo is a one-way mirror.
+# Publishes every @viktorbarzin package version that a registry does not have
+# yet, then tags `<name>@<version>` on Forgejo. Forgejo's npm registry is
+# where the apps install from; npm is a public mirror (ADR-0003). Versions
+# are bumped in package.json on Forgejo master (changesets locally); there
+# are no version PRs here because this repo is a one-way mirror.
 #
-# Two jobs, so the npm OIDC token is out of reach of dependency code:
-# - build has no id-token. It installs, builds, tests, runs gitleaks and
-#   check-public, packs the unpublished versions and uploads the tarballs.
-# - publish is the only job with `id-token: write`. It runs in the
+# Three jobs, so no token is in reach of dependency code:
+# - build has no tokens. It installs, builds, tests, runs gitleaks and
+#   check-public, packs the versions missing from Forgejo or npm and uploads
+#   the tarballs.
+# - publish-forgejo runs in the `forgejo-publish` environment (deployments
+#   from master only), which holds the Forgejo package and tag tokens. It
+#   publishes to Forgejo and pushes the release tags, and runs npm, git and
+#   nothing from the repo's dependencies.
+# - publish-npm is the only job with `id-token: write`. It runs in the
 #   `npm-publish` environment (deployments from master only), which each npm
-#   trusted publisher names, and it runs npm, git and nothing from the repo's
-#   dependencies.
-# Publishing runs only when the repo variable NPM_PUBLISH_ENABLED is 'true'.
-# Until then every push still runs the build job, which is the dry run.
+#   trusted publisher names, and it runs npm and nothing else. It runs only
+#   when the repo variable NPM_PUBLISH_ENABLED is 'true'.
 on:
   push:
     branches: [master]
@@ -70,8 +73,8 @@ jobs:
       - name: gitleaks (history)
         run: gitleaks git --config .gitleaks.toml --no-banner --redact --exit-code 1
       - run: bun scripts/check-public.ts --require-gitleaks
-      # `npm view` per package; packs the versions npm does not have yet and
-      # writes release-packs/release-plan.tsv. With publishing off, this is the dry run.
+      # `npm view` per package on Forgejo and npm; packs the versions either
+      # lacks and writes release-packs/release-plan.tsv.
       - run: bun scripts/release.ts --plan release-packs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -80,7 +83,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish:
+  publish-forgejo:
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: forgejo-publish
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24.21.0"
+          registry-url: "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/"
+          scope: "@viktorbarzin"
+          package-manager-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-packs
+          path: release-packs
+      - name: Publish to Forgejo and tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.FORGEJO_PACKAGE_TOKEN }}
+          FORGEJO_GIT_TOKEN: ${{ secrets.FORGEJO_GIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          while IFS=$'\t' read -r name version tarball; do
+            [ -n "$name" ] || continue
+            if [ "$(npm view "${name}@${version}" version 2>/dev/null || true)" = "$version" ]; then
+              echo "${name}@${version} is already on Forgejo"
+            else
+              npm publish "./release-packs/${tarball}" --provenance=false
+            fi
+            tag="${name}@${version}"
+            git tag "$tag" 2>/dev/null || true
+            git push "https://viktor:${FORGEJO_GIT_TOKEN}@forgejo.viktorbarzin.me/viktor/app-kit.git" "refs/tags/${tag}"
+            echo "published ${tag} on Forgejo"
+          done < release-packs/release-plan.tsv
+
+  publish-npm:
     needs: build
     if: vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
@@ -89,9 +132,6 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
       # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14. Node 24.21.0
       # ships npm 11.19.0, so nothing is fetched from the registry here.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -104,9 +144,7 @@ jobs:
         with:
           name: release-packs
           path: release-packs
-      - name: Publish and tag
-        env:
-          FORGEJO_GIT_TOKEN: ${{ secrets.FORGEJO_GIT_TOKEN }}
+      - name: Publish to npm
         run: |
           set -euo pipefail
           while IFS=$'\t' read -r name version tarball; do
@@ -115,9 +153,6 @@ jobs:
               echo "${name}@${version} is already on npm"
             else
               npm publish "./release-packs/${tarball}" --provenance --access public
+              echo "published ${name}@${version} on npm"
             fi
-            tag="${name}@${version}"
-            git tag "$tag" 2>/dev/null || true
-            git push "https://viktor:${FORGEJO_GIT_TOKEN}@forgejo.viktorbarzin.me/viktor/app-kit.git" "refs/tags/${tag}"
-            echo "published ${tag}"
           done < release-packs/release-plan.tsv

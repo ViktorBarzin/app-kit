@@ -1,21 +1,25 @@
 /**
- * Pack every package whose version is not on npm yet, for
+ * Pack every package whose version is not yet on both registries, for
  * .github/workflows/release.yml:
  *
  *   bun scripts/release.ts --plan <dir> | --dry-run | --pack-only <dir>
  *
- * The workflow has two jobs. The build job (no OIDC token) installs, builds,
- * tests, runs gitleaks and check-public, then runs `--plan release-packs`: per
- * package, in dependency order,
- *   1. `npm view <name>@<version> version`: present means nothing to do;
+ * Forgejo's npm registry is where the apps install from; npm is a public
+ * mirror (ADR-0003). The workflow has three jobs. The build job (no tokens)
+ * installs, builds, tests, runs gitleaks and check-public, then runs
+ * `--plan release-packs`: per package, in dependency order,
+ *   1. `npm view <name>@<version> version` on Forgejo and on npm: present on
+ *      both means nothing to do;
  *   2. `bun pm pack`: bun rewrites `workspace:^` into real ranges, which
  *      `npm publish` from the directory would not;
  * and it writes <dir>/release-plan.tsv (name, version, tarball per line).
- * The publish job (the only one with `id-token: write`, in the `npm-publish`
- * environment) downloads that directory and, with no bun and no repo code,
- * runs `npm publish <tgz> --provenance --access public` and pushes the tag
- * `<name>@<version>` to Forgejo (the GitHub repo is a one-way mirror; tags
- * pushed there are wiped).
+ * Two publish jobs download that directory and, with no bun and no repo
+ * code, each publishes the versions its own registry lacks:
+ * `publish-forgejo` with a Forgejo package token, then tags
+ * `<name>@<version>` on Forgejo (the GitHub repo is a one-way mirror; tags
+ * pushed there are wiped); `publish-npm`, the only job with
+ * `id-token: write`, in the `npm-publish` environment, with
+ * `npm publish --provenance` through trusted publishing.
  *
  * --dry-run packs and reports. --pack-only packs every package into <dir>
  * whether published or not, and stops (the template builder uses it).
@@ -113,16 +117,44 @@ function run(
 	};
 }
 
-/** `npm view <name>@<version> version`: true when that exact version exists. */
-export async function npmHasVersion(
-	name: string,
-	version: string,
-): Promise<boolean> {
-	const result = run(["npm", "view", `${name}@${version}`, "version"]);
-	if (result.code === 0) return result.stdout.trim() === version;
-	if (/E404|404 Not Found|is not in this registry/.test(result.stderr))
-		return false;
-	throw new Error(`npm view ${name}@${version} failed:\n${result.stderr}`);
+/** Forgejo's npm registry: what the apps install from (ADR-0003). */
+export const FORGEJO_REGISTRY =
+	"https://forgejo.viktorbarzin.me/api/packages/viktor/npm/";
+/** The public npm registry: a mirror of the Forgejo versions. */
+export const NPM_REGISTRY = "https://registry.npmjs.org/";
+
+/**
+ * `npm view <name>@<version> version` against one registry: true when that
+ * exact version exists there. The scope flag wins over any `.npmrc`.
+ */
+export function registryHasVersion(
+	registry: string,
+): (name: string, version: string) => Promise<boolean> {
+	return async (name, version) => {
+		const result = run([
+			"npm",
+			"view",
+			`${name}@${version}`,
+			"version",
+			`--@viktorbarzin:registry=${registry}`,
+		]);
+		if (result.code === 0) return result.stdout.trim() === version;
+		if (/E404|404 Not Found|is not in this registry/.test(result.stderr))
+			return false;
+		throw new Error(
+			`npm view ${name}@${version} on ${registry} failed:\n${result.stderr}`,
+		);
+	};
+}
+
+/** True only when the version is on Forgejo and on npm. */
+export function onEveryRegistry(
+	checks: Array<(name: string, version: string) => Promise<boolean>>,
+): (name: string, version: string) => Promise<boolean> {
+	return async (name, version) => {
+		for (const has of checks) if (!(await has(name, version))) return false;
+		return true;
+	};
 }
 
 /** `bun pm pack` the package into `outDir`; returns the tarball path. */
@@ -212,14 +244,18 @@ if (import.meta.main) {
 	}
 	const outDir = planDir ?? resolve(ROOT, ".packs");
 	const packed: Array<{ pkg: WorkspacePackage; tarball: string }> = [];
-	for (const pkg of await planRelease(packages, npmHasVersion))
+	const published = onEveryRegistry([
+		registryHasVersion(FORGEJO_REGISTRY),
+		registryHasVersion(NPM_REGISTRY),
+	]);
+	for (const pkg of await planRelease(packages, published))
 		packed.push({ pkg, tarball: await pack(pkg, outDir) });
 	const planPath = await writeReleasePlan(outDir, packed);
 	if (packed.length === 0)
-		console.log("release: every package version is already on npm");
+		console.log("release: every package version is on Forgejo and npm");
 	for (const { pkg, tarball } of packed)
 		console.log(
-			`release: ${pkg.name}@${pkg.version} is not on npm; packed ${tarball}`,
+			`release: ${pkg.name}@${pkg.version} is missing from Forgejo or npm; packed ${tarball}`,
 		);
 	console.log(`release: plan written to ${planPath}`);
 }

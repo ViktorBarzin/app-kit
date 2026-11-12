@@ -71,29 +71,58 @@ describe.each(GITHUB_WORKFLOWS)("%s", (path) => {
 });
 
 describe("release.yml", () => {
-	test("only the publish job can mint an OIDC token, in the npm-publish environment", async () => {
+	test("only publish-npm can mint an OIDC token, in the npm-publish environment", async () => {
 		const wf = await workflow(".github/workflows/release.yml");
 		const withIdToken = Object.entries(wf.jobs).filter(
 			([, job]) => job.permissions?.["id-token"] === "write",
 		);
-		expect(withIdToken.map(([name]) => name)).toEqual(["publish"]);
-		const publish = wf.jobs.publish as Job;
-		expect(publish.environment).toEqual("npm-publish");
-		expect(publish.if).toContain("vars.NPM_PUBLISH_ENABLED == 'true'");
-		expect(runText(publish)).toContain("npm publish");
-		for (const [name, job] of Object.entries(wf.jobs))
-			if (name !== "publish") expect(runText(job)).not.toContain("npm publish");
+		expect(withIdToken.map(([name]) => name)).toEqual(["publish-npm"]);
+		const npm = wf.jobs["publish-npm"] as Job;
+		expect(npm.environment).toEqual("npm-publish");
+		expect(npm.if).toContain("vars.NPM_PUBLISH_ENABLED == 'true'");
+		expect(runText(npm)).toContain("npm publish");
+		expect(runText(npm)).toContain("--provenance");
 	});
 
-	test("the publish job installs and runs no dependency code", async () => {
-		const publish = (await workflow(".github/workflows/release.yml")).jobs
-			.publish as Job;
-		const text = runText(publish);
-		expect(text).not.toMatch(/\bbun\b/);
-		expect(text).not.toMatch(/npm (ci|install)(?! -g npm@\d+\.\d+\.\d+\b)/);
-		expect(publish.steps.some((s) => s.uses?.startsWith("oven-sh/"))).toBe(
-			false,
+	test("publish-forgejo publishes to Forgejo with its own token and tags the release", async () => {
+		const wf = await workflow(".github/workflows/release.yml");
+		const forgejo = wf.jobs["publish-forgejo"] as Job;
+		expect(forgejo.permissions).toEqual({ contents: "read" });
+		expect(forgejo.environment).toEqual("forgejo-publish");
+		expect(forgejo.if).toContain("refs/heads/master");
+		const text = runText(forgejo);
+		expect(text).toContain("npm publish");
+		expect(text).toContain("git push");
+		const node = forgejo.steps.find((s) =>
+			s.uses?.startsWith("actions/setup-node@"),
 		);
+		expect(String(node?.with?.["registry-url"])).toContain(
+			"forgejo.viktorbarzin.me/api/packages/viktor/npm/",
+		);
+		const publish = forgejo.steps.find((s) =>
+			(s.run ?? "").includes("npm publish"),
+		);
+		expect(publish?.env?.NODE_AUTH_TOKEN).toContain(
+			"secrets.FORGEJO_PACKAGE_TOKEN",
+		);
+	});
+
+	test("only the publish jobs run npm publish", async () => {
+		const wf = await workflow(".github/workflows/release.yml");
+		for (const [name, job] of Object.entries(wf.jobs))
+			if (!name.startsWith("publish-"))
+				expect(runText(job)).not.toContain("npm publish");
+	});
+
+	test("the publish jobs install and run no dependency code", async () => {
+		const wf = await workflow(".github/workflows/release.yml");
+		for (const name of ["publish-forgejo", "publish-npm"]) {
+			const job = wf.jobs[name] as Job;
+			const text = runText(job);
+			expect(text).not.toMatch(/\bbun\b/);
+			expect(text).not.toMatch(/npm (ci|install)(?! -g npm@\d+\.\d+\.\d+\b)/);
+			expect(job.steps.some((s) => s.uses?.startsWith("oven-sh/"))).toBe(false);
+		}
 	});
 
 	test("npm is pinned to an exact version", async () => {
@@ -112,7 +141,8 @@ describe("release.yml", () => {
 		expect(
 			build.steps.some((s) => s.uses?.startsWith("actions/upload-artifact@")),
 		).toBe(true);
-		expect(wf.jobs.publish?.needs).toEqual("build");
+		expect(wf.jobs["publish-forgejo"]?.needs).toEqual("build");
+		expect(wf.jobs["publish-npm"]?.needs).toEqual("build");
 	});
 
 	test("artifacts are not in a hidden directory (upload-artifact skips those)", async () => {

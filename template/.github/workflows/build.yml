@@ -47,27 +47,30 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres:ci@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      # The @viktorbarzin/* packages come from npm. Until they are published
-      # (and app-kit's export has written bun.lock), the install below cannot
-      # work; say that plainly instead of failing inside bun.
-      - name: Check the @viktorbarzin packages resolve on npm
+      # The @viktorbarzin/* packages come from Forgejo's npm registry
+      # (bunfig.toml, app-kit ADR-0003). Until they are published there (and
+      # app-kit's export has written bun.lock), the install below cannot work;
+      # say that plainly instead of failing inside bun.
+      - name: Check the @viktorbarzin packages resolve on Forgejo
         run: |
           missing=""
           for spec in $(jq -r '(.dependencies // {}) + (.devDependencies // {})
               | to_entries[] | select(.key | startswith("@viktorbarzin/"))
               | "\(.key)@\(.value)"' package.json); do
-            version=$(npm view "$spec" version 2>/dev/null | tail -n 1)
+            version=$(npm view "$spec" version \
+              --@viktorbarzin:registry=https://forgejo.viktorbarzin.me/api/packages/viktor/npm/ \
+              2>/dev/null | tail -n 1)
             if [ -z "$version" ]; then missing="$missing $spec"; fi
           done
           if [ -n "$missing" ]; then
-            echo "::error title=publish @viktorbarzin packages first::Not on npm:$missing. Publish them from viktor/app-kit (README, 'One-time npm setup'), then refresh this repo with app-kit's scripts/export-template.ts."
+            echo "::error title=publish @viktorbarzin packages first::Not on Forgejo's npm registry:$missing. Publish them from viktor/app-kit (README, 'Releasing'), then refresh this repo with app-kit's scripts/export-template.ts."
             exit 1
           fi
           if [ ! -f bun.lock ]; then
-            echo "::error title=publish @viktorbarzin packages first::bun.lock is missing. Run app-kit's scripts/export-template.ts after the packages are on npm; it writes bun.lock."
+            echo "::error title=publish @viktorbarzin packages first::bun.lock is missing. Run app-kit's scripts/export-template.ts after the packages are published; it writes bun.lock."
             exit 1
           fi
-          echo "all @viktorbarzin packages resolve on npm"
+          echo "all @viktorbarzin packages resolve on Forgejo"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.3

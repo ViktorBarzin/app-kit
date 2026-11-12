@@ -66,7 +66,9 @@ flowchart TD
   M --> D["dbaas and vault maps"]
 ```
 
-The shared packages are public on npm under `@viktorbarzin`:
+The shared packages are public under `@viktorbarzin`. Apps install them from
+Forgejo's npm registry, mapped in `bunfig.toml`, and npm carries a mirror
+([ADR-0003](adr/0003-forgejo-package-registry.md)):
 
 | Package | What it does |
 |---|---|

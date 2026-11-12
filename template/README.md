@@ -13,7 +13,8 @@ range with `^<published version>` and writing `bun.lock`. Change the template
 in app-kit, not here.
 
 The build fails at its first step with "publish @viktorbarzin packages first"
-until those packages are on npm and the export has written `bun.lock`.
+until those packages are on Forgejo's npm registry and the export has written
+`bun.lock`. `bunfig.toml` points the `@viktorbarzin` scope at that registry.
 
 Agent and code conventions are in [AGENTS.md](AGENTS.md). The longer version
 of the infra steps is [docs/new-app.md](docs/new-app.md).

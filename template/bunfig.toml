@@ -13,6 +13,11 @@ minimumReleaseAgeExcludes = [
 	"@viktorbarzin/telemetry",
 ]
 
+# ADR-0003: our @viktorbarzin packages come from Forgejo's npm registry, the
+# rest from npm. Anonymous reads; no token needed.
+[install.scopes]
+"@viktorbarzin" = "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/"
+
 [test]
 root = "src"
 preload = ["./src/test/happydom.ts", "./src/test/setup.ts"]

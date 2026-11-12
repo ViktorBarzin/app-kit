@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
 	listPackages,
+	onEveryRegistry,
 	pack,
 	planRelease,
 	readReleasePlan,
@@ -54,6 +55,16 @@ describe("planRelease", () => {
 		const plan = await planRelease(
 			[pkg("log"), pkg("runtime", ["log"])],
 			async (name) => name.endsWith("/log"),
+		);
+		expect(plan.map((p) => p.name)).toEqual(["@viktorbarzin/runtime"]);
+	});
+
+	test("a version on Forgejo but not on npm is still packed, for the npm mirror", async () => {
+		const forgejo = async () => true;
+		const npm = async (name: string) => name.endsWith("/log");
+		const plan = await planRelease(
+			[pkg("log"), pkg("runtime", ["log"])],
+			onEveryRegistry([forgejo, npm]),
 		);
 		expect(plan.map((p) => p.name)).toEqual(["@viktorbarzin/runtime"]);
 	});

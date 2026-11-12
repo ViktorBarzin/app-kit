@@ -50,20 +50,31 @@ export TEST_DATABASE_URL=postgres://postgres:ci@127.0.0.1:<port>/postgres
 
 ## Releasing
 
+Apps install the packages from Forgejo's npm registry; npm is a public mirror
+([ADR-0003](docs/adr/0003-forgejo-package-registry.md)). An app maps the
+scope in `bunfig.toml`:
+
+```toml
+[install.scopes]
+"@viktorbarzin" = "https://forgejo.viktorbarzin.me/api/packages/viktor/npm/"
+```
+
 1. Record changes with `bun run changeset`, then `bunx changeset version` to
    bump versions and changelogs. Commit to `master` on Forgejo.
-2. `.github/workflows/release.yml` runs on every push to `master`, in two
-   jobs so that dependency code never holds the npm OIDC token:
-   - `build` (no `id-token`): package tests, gitleaks over the history,
+2. `.github/workflows/release.yml` runs on every push to `master`, in three
+   jobs so that dependency code never holds a token:
+   - `build` (no tokens): package tests, gitleaks over the history,
      `scripts/check-public.ts` (no homelab hostnames, internal addresses,
      client IDs or secrets in `src/` or `dist/`), then
-     `scripts/release.ts --plan release-packs`, which runs `npm view` per package,
-     packs (`bun pm pack`) each version npm does not have yet and uploads the
-     tarballs with `release-plan.tsv`.
-   - `publish` (the only job with `id-token: write`, in the `npm-publish`
-     environment, only when `NPM_PUBLISH_ENABLED` is `true`): downloads the
-     tarballs and, with npm and git only, runs `npm publish --provenance` for
-     each and tags `<name>@<version>` on Forgejo.
+     `scripts/release.ts --plan release-packs`, which runs `npm view` per
+     package on Forgejo and on npm, packs (`bun pm pack`) each version either
+     registry lacks and uploads the tarballs with `release-plan.tsv`.
+   - `publish-forgejo` (in the `forgejo-publish` environment, master only):
+     with npm and git only, publishes each version Forgejo lacks and tags
+     `<name>@<version>` on Forgejo.
+   - `publish-npm` (the only job with `id-token: write`, in the
+     `npm-publish` environment, only when `NPM_PUBLISH_ENABLED` is `true`):
+     runs `npm publish --provenance` for each version npm lacks.
 
    Every action is pinned to a commit SHA and every downloaded binary to a
    sha256; `scripts/workflows.test.ts` checks both, here and in the
@@ -71,28 +82,39 @@ export TEST_DATABASE_URL=postgres://postgres:ci@127.0.0.1:<port>/postgres
 3. After a publish, `bun scripts/export-template.ts --push` refreshes
    `viktor/app-template` with the published versions.
 
-## One-time npm setup
+To publish by hand, for example when CI is down: build and pack from a clean
+checkout of master (`bun install && bun run build && bun scripts/release.ts --pack-only .packs`),
+then for each tarball in release order (log, runtime, metrics, oidc-token,
+auth, pg, realtime, telemetry) run
+`npm publish .packs/<tarball> --provenance=false --registry https://forgejo.viktorbarzin.me/api/packages/viktor/npm/`
+with a Forgejo token that has `write:package` in `.npmrc`.
 
-Publishing is off until these steps are done; until then release.yml runs a
-dry run. Trusted publishing needs each package to exist on npm before a
-trusted publisher can be added to it, so the first version is published by
-hand once.
+## GitHub secrets
 
-1. Create the free npm organisation `viktorbarzin` on npmjs.com.
-2. Publish the first version of each package by hand, from a clean checkout of
-   master: `bun install && bun run build && bun scripts/release.ts --pack-only .packs`,
-   then `npm publish .packs/<tarball> --access public` for each of the eight
-   tarballs (log, runtime, metrics, pg, oidc-token, auth, realtime,
-   telemetry, in that order). This first version has no provenance statement.
+On `ViktorBarzin/app-kit`, the environment `forgejo-publish` (deployments from
+`master` only) holds `FORGEJO_PACKAGE_TOKEN` (a Forgejo token with
+`write:package` for the `viktor` account; Vault
+`secret/ci/global` `forgejo_push_token`) and `FORGEJO_GIT_TOKEN` (write
+access to `viktor/app-kit`, for the release tags).
+
+## One-time npm setup, for the mirror
+
+Trusted publishing needs each package to exist on npm before a trusted
+publisher can be added to it, so the first npm version of a new package is
+published by hand once, with Viktor's security key.
+
+1. The free npm organisation `viktorbarzin` exists on npmjs.com.
+2. Publish the first version of a new package by hand:
+   `npm publish .packs/<tarball> --access public`. This first version has no
+   provenance statement.
 3. For each package on npmjs.com, Settings, Trusted Publisher, GitHub Actions:
    organisation or user `ViktorBarzin`, repository `app-kit`, workflow
    filename `release.yml`, environment `npm-publish`. Publishers created after
    2026-09-03 allow only `npm stage publish` by default; also allow
    `npm publish`.
 4. On GitHub `ViktorBarzin/app-kit`, the environment `npm-publish` exists
-   (deployments from `master` only). Set the repository variable
-   `NPM_PUBLISH_ENABLED` to `true` and the secret `FORGEJO_GIT_TOKEN` (a
-   Forgejo token with write access to `viktor/app-kit`, for the release tags).
+   (deployments from `master` only), and the repository variable
+   `NPM_PUBLISH_ENABLED` is `true`.
 5. Optionally, in each package's npm settings, require trusted publishing and
    disallow tokens.
 
