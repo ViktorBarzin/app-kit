@@ -66,7 +66,9 @@ describe("rename", () => {
 		expect(build).toContain("scope=my-app");
 		expect(build).toContain("package-name: my-app");
 		expect(build).toContain('git config user.name "my-app-ci"');
-		expect(build).toContain("FORGEJO_REPO: ${{ vars.FORGEJO_REPO || 'viktor/my-app' }}");
+		expect(build).toContain(
+			"FORGEJO_REPO: ${{ vars.FORGEJO_REPO || 'viktor/my-app' }}",
+		);
 		expect(build).toContain(
 			'git push "https://${FORGEJO_REPO%%/*}:${FORGEJO_GIT_TOKEN}@forgejo.viktorbarzin.me/${FORGEJO_REPO}.git"',
 		);
