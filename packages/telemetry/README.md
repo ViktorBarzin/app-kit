@@ -65,8 +65,14 @@ event the pipeline would reject. On a production host it:
   never contacts Segment: events go to `https://<host>/_t/e/v1/<t|i|...>`
   with the write key as Basic auth, SDK metrics are off, and there is no
   automatic `page()` (pageviews come from Rybbit);
-- initialises Sentry when both `dsn` and `sentry` are given. Sentry is an
-  optional peer: an app that does not pass it does not bundle it.
+- initialises Sentry when both `dsn` and `sentry` are given. The app
+  installs `@sentry/browser` itself and passes the module in; an app that
+  does not pass it does not bundle it.
+
+On a new visitor's first page, Segment calls wait until the Rybbit script has
+created the visitor id, so Segment's anonymousId is that id from the first
+event. They wait at most 5 seconds, or until the script fails to load, and
+then go out under Segment's own id.
 
 `identify` sets the person in Segment, Rybbit (`window.rybbit.identify`,
 after the script has loaded) and Sentry. `reset` clears all three. With
@@ -160,5 +166,8 @@ checkEvent("item.created", { item_id: 1, itemName: "x" });
 //   problems: ['property key is not snake_case: "itemName"'] }
 ```
 
-Dependencies: `@segment/analytics-next`, `@segment/analytics-node`. Optional
-peers: `@sentry/browser`, `@sentry/bun`, passed in as modules.
+Dependencies: `@segment/analytics-next`, `@segment/analytics-node`. Sentry
+(`@sentry/browser`, `@sentry/bun` or `@sentry/node`, major 10 or 11) is the
+app's own dependency, passed in as a module. It is not declared as a peer:
+Forgejo's npm registry drops `peerDependenciesMeta`, so an optional peer
+became a required one and npm installed every Sentry SDK in every app.

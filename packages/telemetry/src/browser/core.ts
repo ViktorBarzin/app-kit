@@ -88,8 +88,17 @@ export interface BrowserRuntime {
 	hostname: string;
 	/** `location.host` (with the port, if any). */
 	host: string;
-	/** Add a `<script>` with these attributes; call `onLoad` once it has run. */
-	injectScript(attributes: Record<string, string>, onLoad: () => void): void;
+	/**
+	 * Add a `<script>` with these attributes; call `onLoad` once it has run,
+	 * or `onError` if it cannot load (blocked, offline).
+	 */
+	injectScript(
+		attributes: Record<string, string>,
+		onLoad: () => void,
+		onError: () => void,
+	): void;
+	/** `setTimeout(fn, ms)`. */
+	after(ms: number, fn: () => void): void;
 	/** `window.rybbit`, once the script has defined it. */
 	rybbit(): RybbitLike | undefined;
 	/** `AnalyticsBrowser.load(...args)`, resolved once it is ready to buffer calls. */
@@ -98,6 +107,9 @@ export interface BrowserRuntime {
 	visitorId(): string | undefined;
 	warn(message: string): void;
 }
+
+/** How long Segment calls wait for a new visitor's Rybbit id. */
+export const VISITOR_ID_WAIT_MS = 5000;
 
 function trimSlashes(path: string): string {
 	return `/${path.replace(/^\/+|\/+$/g, "")}`;
@@ -194,33 +206,49 @@ export function createBrowserTelemetry(
 		if (rybbit) fn(rybbit);
 		else waitingForRybbit.push(fn);
 	}
-	const segment = runtime.loadSegment(
+	// Segment's anonymousId is Rybbit's visitor id, so browser events and
+	// pageviews are one person. A returning visitor's id is already stored;
+	// a new visitor's is created when the script runs, so Segment calls wait
+	// for the script (at most VISITOR_ID_WAIT_MS, or until it fails to load)
+	// instead of going out under Segment's own random id.
+	let visitorIdSettled: () => void = () => {};
+	const visitorIdKnown = new Promise<void>((resolve) => {
+		visitorIdSettled = resolve;
+	});
+	let anonymousId: string | undefined;
+	const loaded = runtime.loadSegment(
 		segmentLoadArgs(config.writeKey, runtime.host, ingestPath),
 	);
+	const segment = Promise.all([loaded, visitorIdKnown]).then(([analytics]) => {
+		const id = runtime.visitorId();
+		if (id) {
+			anonymousId = id;
+			analytics.setAnonymousId(id);
+		}
+		return analytics;
+	});
 	function withSegment(fn: (analytics: SegmentLike) => void): void {
 		void segment.then(fn, () => {});
 	}
-
-	// Segment's anonymousId is Rybbit's visitor id, so browser events and
-	// pageviews are one person. A returning visitor's id is already stored;
-	// a new visitor's is created when the script runs.
-	let anonymousId: string | undefined;
 	function adoptVisitorId(): void {
 		const id = runtime.visitorId();
-		if (!id || id === anonymousId) return;
+		if (!id || id === anonymousId || !anonymousId) return;
 		anonymousId = id;
 		withSegment((a) => a.setAnonymousId(id));
 	}
-	adoptVisitorId();
+	if (runtime.visitorId()) visitorIdSettled();
+	else runtime.after(VISITOR_ID_WAIT_MS, visitorIdSettled);
 
 	runtime.injectScript(
 		rybbitScriptAttributes(String(config.siteId), ingestPath),
 		() => {
 			scriptLoaded = true;
+			visitorIdSettled();
 			adoptVisitorId();
 			const rybbit = runtime.rybbit();
 			if (rybbit) for (const fn of waitingForRybbit.splice(0)) fn(rybbit);
 		},
+		visitorIdSettled,
 	);
 
 	function identify(personId: string, traits?: Record<string, unknown>) {

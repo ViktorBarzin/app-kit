@@ -23,6 +23,12 @@ interface Fake {
 	/** What localStorage `rybbit-visitor-id` holds; the script sets it on load. */
 	storedVisitorId: string | undefined;
 	loadScript(visitorId?: string): void;
+	/** The script tag fired its error event (blocked, offline). */
+	failScript(): void;
+	/** Run every callback given to `runtime.after`, as if its time passed. */
+	elapse(): void;
+	/** The delays asked of `runtime.after`. */
+	delays: number[];
 }
 
 function fake(hostname: string, port = ""): Fake {
@@ -32,6 +38,8 @@ function fake(hostname: string, port = ""): Fake {
 	const rybbit: string[][] = [];
 	const warnings: string[] = [];
 	const onLoads: (() => void)[] = [];
+	const onErrors: (() => void)[] = [];
+	const timers: (() => void)[] = [];
 	let rybbitApi: RybbitLike | undefined;
 	const segmentApi: SegmentLike = {
 		track: (name, properties) =>
@@ -49,12 +57,18 @@ function fake(hostname: string, port = ""): Fake {
 		sentry: [],
 		warnings,
 		storedVisitorId: undefined,
+		delays: [],
 		runtime: {
 			hostname,
 			host: port ? `${hostname}:${port}` : hostname,
-			injectScript: (attributes, onLoad) => {
+			injectScript: (attributes, onLoad, onError) => {
 				scripts.push(attributes);
 				onLoads.push(onLoad);
+				onErrors.push(onError);
+			},
+			after: (ms, fn) => {
+				f.delays.push(ms);
+				timers.push(fn);
 			},
 			rybbit: () => rybbitApi,
 			loadSegment: async (args) => {
@@ -72,6 +86,12 @@ function fake(hostname: string, port = ""): Fake {
 				clearUserId: () => void rybbit.push(["clearUserId"]),
 			};
 			for (const fn of onLoads.splice(0)) fn();
+		},
+		failScript() {
+			for (const fn of onErrors.splice(0)) fn();
+		},
+		elapse() {
+			for (const fn of timers.splice(0)) fn();
 		},
 	};
 	return f;
@@ -198,11 +218,15 @@ describe("createBrowserTelemetry", () => {
 
 	test("track sends valid events, trims bad keys and drops bad names, silently", async () => {
 		const f = fake("example.com");
+		f.storedVisitorId = "rv-1";
 		const t = createBrowserTelemetry(base, f.runtime);
 		t.track("item.created", { item_id: 1, itemName: "x" });
 		t.track("Item Created");
 		await settle();
-		expect(f.segment).toEqual([["track", "item.created", '{"item_id":1}']]);
+		expect(f.segment).toEqual([
+			["setAnonymousId", "rv-1"],
+			["track", "item.created", '{"item_id":1}'],
+		]);
 		expect(f.warnings).toEqual([]);
 	});
 
@@ -216,7 +240,11 @@ describe("createBrowserTelemetry", () => {
 		await settle();
 		expect(f.rybbit).toEqual([]);
 		f.loadScript();
-		expect(f.segment).toEqual([["identify", "sub-1", '{"plan":"free"}']]);
+		await settle();
+		expect(f.segment).toEqual([
+			["setAnonymousId", "rv-1"],
+			["identify", "sub-1", '{"plan":"free"}'],
+		]);
 		expect(f.rybbit).toEqual([["identify", "sub-1", '{"plan":"free"}']]);
 		expect(f.sentry.at(-1)).toEqual(["setUser", "sub-1"]);
 	});
@@ -282,6 +310,45 @@ describe("createBrowserTelemetry", () => {
 		expect(t.visitorHeaders()).toEqual({ "X-Visitor-Id": "rv-old" });
 	});
 
+	test("a new visitor's Segment calls wait for the Rybbit visitor id", async () => {
+		const f = fake("app.example.com");
+		const t = createBrowserTelemetry(
+			{ ...base, personId: "p-1" },
+			f.runtime,
+		);
+		t.track("item.created");
+		await settle();
+		expect(f.segment).toEqual([]);
+		f.loadScript("rv-new");
+		await settle();
+		expect(f.segment.map((call) => call.slice(0, 2))).toEqual([
+			["setAnonymousId", "rv-new"],
+			["identify", "p-1"],
+			["track", "item.created"],
+		]);
+	});
+
+	test("if the Rybbit script fails to load, Segment calls still go out", async () => {
+		const f = fake("app.example.com");
+		const t = createBrowserTelemetry(base, f.runtime);
+		t.track("item.created");
+		f.failScript();
+		await settle();
+		expect(f.segment.map((call) => call[0])).toEqual(["track"]);
+	});
+
+	test("if the Rybbit script never answers, Segment calls go out after a wait", async () => {
+		const f = fake("app.example.com");
+		const t = createBrowserTelemetry(base, f.runtime);
+		t.track("item.created");
+		await settle();
+		expect(f.segment).toEqual([]);
+		expect(f.delays).toEqual([5000]);
+		f.elapse();
+		await settle();
+		expect(f.segment.map((call) => call[0])).toEqual(["track"]);
+	});
+
 	test("off production there are no visitor headers", () => {
 		const f = fake("localhost");
 		f.storedVisitorId = "rv-1";
@@ -339,6 +406,7 @@ describe("createBrowserTelemetry", () => {
 		await fc.assert(
 			fc.asyncProperty(host, async (hostname) => {
 				const f = fake(hostname);
+				f.storedVisitorId = "rv-1";
 				const t = createBrowserTelemetry(base, f.runtime);
 				t.track("item.created");
 				await settle();

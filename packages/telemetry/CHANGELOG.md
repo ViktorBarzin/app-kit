@@ -1,5 +1,11 @@
 # @viktorbarzin/telemetry
 
+## 0.2.1
+
+### Patch Changes
+
+- A new visitor's first Segment calls (identify, track) wait for the Rybbit visitor id, at most 5 seconds or until the script fails to load, so they no longer go out under a random anonymousId. The Sentry SDKs are no longer declared as peers; apps install the one they pass in. Forgejo's npm registry drops `peerDependenciesMeta`, which made npm install `@sentry/bun` and `@sentry/browser` in every app.
+
 ## 0.2.0
 
 ### Minor Changes

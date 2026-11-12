@@ -27,12 +27,16 @@ function domRuntime(): BrowserRuntime {
 	return {
 		hostname: window.location.hostname,
 		host: window.location.host,
-		injectScript(attributes, onLoad) {
+		injectScript(attributes, onLoad, onError) {
 			const script = document.createElement("script");
 			for (const [name, value] of Object.entries(attributes))
 				script.setAttribute(name, value);
 			script.addEventListener("load", onLoad, { once: true });
+			script.addEventListener("error", onError, { once: true });
 			document.head.appendChild(script);
+		},
+		after(ms, fn) {
+			setTimeout(fn, ms);
 		},
 		rybbit() {
 			const holder = window as unknown as { rybbit?: RybbitLike };
