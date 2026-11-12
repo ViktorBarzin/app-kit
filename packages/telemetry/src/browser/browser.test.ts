@@ -312,10 +312,7 @@ describe("createBrowserTelemetry", () => {
 
 	test("a new visitor's Segment calls wait for the Rybbit visitor id", async () => {
 		const f = fake("app.example.com");
-		const t = createBrowserTelemetry(
-			{ ...base, personId: "p-1" },
-			f.runtime,
-		);
+		const t = createBrowserTelemetry({ ...base, personId: "p-1" }, f.runtime);
 		t.track("item.created");
 		await settle();
 		expect(f.segment).toEqual([]);
