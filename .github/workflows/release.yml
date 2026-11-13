@@ -154,6 +154,9 @@ jobs:
           # for the 1.0.0 release, and for a package that has no trusted
           # publisher yet. Provenance is signed either way.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # npm logs the trusted-publishing (OIDC) exchange only at verbose,
+          # and that exchange is what fails; keep it visible.
+          NPM_CONFIG_LOGLEVEL: verbose
         run: |
           set -euo pipefail
           # One package's npm settings must not hold back the others, so try
