@@ -71,6 +71,12 @@ were waiting for `@viktorbarzin/telemetry` and `@viktorbarzin/log` 1.0.
   realtime at 1.0.0, and telemetry at 0.2.0.
 - npm still serves 0.1.0 of the seven older packages until the mirror job
   runs.
+- On 2026-11-13 Viktor created a granular npm token (2FA bypass, write on
+  all packages, expires 2027-02-11). It is the `NPM_TOKEN` secret of the
+  `npm-publish` environment. `publish-npm` uses it when the
+  trusted-publishing exchange fails and for the first npm version of a new
+  package, so the mirror no longer needs Viktor's security key until the
+  token expires.
 
 ## Open questions
 

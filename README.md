@@ -74,7 +74,8 @@ scope in `bunfig.toml`:
      `<name>@<version>` on Forgejo.
    - `publish-npm` (the only job with `id-token: write`, in the
      `npm-publish` environment, only when `NPM_PUBLISH_ENABLED` is `true`):
-     runs `npm publish --provenance` for each version npm lacks.
+     runs `npm publish --provenance` for each version npm lacks. npm tries
+     trusted publishing first and falls back to the `NPM_TOKEN` secret.
 
    Every action is pinned to a commit SHA and every downloaded binary to a
    sha256; `scripts/workflows.test.ts` checks both, here and in the
@@ -96,6 +97,14 @@ On `ViktorBarzin/app-kit`, the environment `forgejo-publish` (deployments from
 `write:package` for the `viktor` account; Vault
 `secret/ci/global` `forgejo_push_token`) and `FORGEJO_GIT_TOKEN` (write
 access to `viktor/app-kit`, for the release tags).
+
+The environment `npm-publish` (deployments from `master` only) holds
+`NPM_TOKEN`, a granular npm token for the `viktorbarzin` account with
+read and write on all packages and 2FA bypass (Vault `secret/viktor`
+`npm_publish_token`). It expires on 2027-02-11. After that the npm mirror
+fails and Forgejo, where the apps install from, is unaffected. To renew,
+create a new token on npmjs.com, then update Vault and the secret:
+`gh secret set NPM_TOKEN --env npm-publish -R ViktorBarzin/app-kit`.
 
 ## One-time npm setup, for the mirror
 

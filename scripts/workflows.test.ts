@@ -84,6 +84,15 @@ describe("release.yml", () => {
 		expect(runText(npm)).toContain("--provenance");
 	});
 
+	test("publish-npm falls back to the NPM_TOKEN secret when trusted publishing fails", async () => {
+		const wf = await workflow(".github/workflows/release.yml");
+		const npm = wf.jobs["publish-npm"] as Job;
+		const publish = npm.steps.find((s) =>
+			(s.run ?? "").includes("npm publish"),
+		);
+		expect(publish?.env?.NODE_AUTH_TOKEN).toContain("secrets.NPM_TOKEN");
+	});
+
 	test("publish-forgejo publishes to Forgejo with its own token and tags the release", async () => {
 		const wf = await workflow(".github/workflows/release.yml");
 		const forgejo = wf.jobs["publish-forgejo"] as Job;

@@ -16,8 +16,10 @@ name: Release
 #   nothing from the repo's dependencies.
 # - publish-npm is the only job with `id-token: write`. It runs in the
 #   `npm-publish` environment (deployments from master only), which each npm
-#   trusted publisher names, and it runs npm and nothing else. It runs only
-#   when the repo variable NPM_PUBLISH_ENABLED is 'true'.
+#   trusted publisher names, and it runs npm and nothing else. npm tries
+#   trusted publishing first and falls back to the environment's NPM_TOKEN
+#   secret, a granular token that expires (see ADR-0003). It runs only when
+#   the repo variable NPM_PUBLISH_ENABLED is 'true'.
 on:
   push:
     branches: [master]
@@ -147,6 +149,11 @@ jobs:
           name: release-packs
           path: release-packs
       - name: Publish to npm
+        env:
+          # Used only when the trusted-publishing exchange fails, as it did
+          # for the 1.0.0 release, and for a package that has no trusted
+          # publisher yet. Provenance is signed either way.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           while IFS=$'\t' read -r name version tarball; do
