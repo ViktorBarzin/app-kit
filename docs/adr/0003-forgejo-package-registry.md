@@ -77,10 +77,16 @@ were waiting for `@viktorbarzin/telemetry` and `@viktorbarzin/log` 1.0.
   trusted-publishing exchange fails and for the first npm version of a new
   package, so the mirror no longer needs Viktor's security key until the
   token expires.
+- The first run with the token, on 2026-11-13, published oidc-token, auth
+  and realtime 1.0.0 and telemetry 0.2.1 to npm, with provenance. log,
+  runtime, metrics and pg returned E403: their npm publishing access is set
+  to require 2FA and disallow tokens. That setting changes only on
+  npmjs.com, with Viktor's security key.
 
 ## Open questions
 
 - Why the 1.0.0 npm publish returned E404 when the seven packages already
-  had trusted publishers (ADR-0001). The next `publish-npm` run, once the
-  account is unlocked, will show whether the trusted publishers still match
-  the workflow.
+  had trusted publishers (ADR-0001). The 2026-11-13 run shows the
+  trusted-publishing exchange still fails for every package: npm fell back to
+  the token each time. The trusted publisher settings on npmjs.com need a
+  check against the workflow.
