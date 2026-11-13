@@ -93,6 +93,13 @@ describe("release.yml", () => {
 		expect(publish?.env?.NODE_AUTH_TOKEN).toContain("secrets.NPM_TOKEN");
 	});
 
+	test("publish-npm tries every package before it fails", async () => {
+		const wf = await workflow(".github/workflows/release.yml");
+		const text = runText(wf.jobs["publish-npm"] as Job);
+		expect(text).toMatch(/npm publish [^\n]*\|\| failed=1/);
+		expect(text).toContain('exit "$failed"');
+	});
+
 	test("publish-forgejo publishes to Forgejo with its own token and tags the release", async () => {
 		const wf = await workflow(".github/workflows/release.yml");
 		const forgejo = wf.jobs["publish-forgejo"] as Job;

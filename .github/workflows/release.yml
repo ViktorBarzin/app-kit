@@ -156,12 +156,16 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
+          # One package's npm settings must not hold back the others, so try
+          # each and fail the job at the end.
+          failed=0
           while IFS=$'\t' read -r name version tarball; do
             [ -n "$name" ] || continue
             if [ "$(npm view "${name}@${version}" version 2>/dev/null || true)" = "$version" ]; then
               echo "${name}@${version} is already on npm"
             else
-              npm publish "./release-packs/${tarball}" --provenance --access public
-              echo "published ${name}@${version} on npm"
+              npm publish "./release-packs/${tarball}" --provenance --access public || failed=1
+              echo "tried ${name}@${version} on npm"
             fi
           done < release-packs/release-plan.tsv
+          exit "$failed"
