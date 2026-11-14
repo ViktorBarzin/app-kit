@@ -12,7 +12,7 @@
 		"typecheck": "tsc -b && tsc -p tsconfig.check.json",
 		"check": "biome check",
 		"format": "biome check --write",
-		"test": "bun test ./packages ./scripts",
+		"test": "NODE_ENV=test bun test ./packages ./scripts",
 		"check-public": "bun scripts/check-public.ts",
 		"check-readmes": "bun scripts/check-readmes.ts",
 		"release": "bun scripts/release.ts",
