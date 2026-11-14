@@ -4,8 +4,10 @@
  *
  * - The password comes from DATABASE_PASSWORD_FILE, read each time a new
  *   connection opens, so a Vault rotation does not break new connections.
- * - An app pod keeps at most 5 connections: the pool (APP_POOL_MAX = 4) plus
- *   the realtime LISTEN connection. The migrate entrypoint uses 1.
+ * - An app pod keeps at most 5 connections by default: the pool
+ *   (APP_POOL_MAX = 4) plus the realtime LISTEN connection. The migrate
+ *   entrypoint uses 1. A platform with a smaller per-role connection limit
+ *   sizes the pool with `max` and connectionBudget().
  * - Nothing connects at import time: the first getDb() call opens the pool.
  * - drizzle-orm's migrator takes no lock of its own, so runMigrations holds a
  *   session-level pg_advisory_lock around it.
@@ -25,8 +27,55 @@ export interface PgSettings {
 	passwordFile: string | null;
 }
 
-/** ADR budget: 5 connections per pod, one of them the realtime LISTEN. */
+/** ADR budget: 5 connections per pod, one of them the realtime LISTEN. The default pool size. */
 export const APP_POOL_MAX = 4;
+
+/** How many Postgres connections one app pod may hold, and how it spends them. */
+export interface ConnectionBudget {
+	/** Every connection the pod may hold: the pool plus the LISTEN connection. */
+	perPod: number;
+	/** The pool's `max`. */
+	poolMax: number;
+	/** Whether the pod may hold a realtime LISTEN connection (one of perPod). */
+	realtime: boolean;
+}
+
+/**
+ * The per-pod budget for a role whose connection limit is `limit` (null: no
+ * limit given, the default pool of APP_POOL_MAX plus one LISTEN connection).
+ *
+ * A pod gets half the limit, rounded down: during a rollout a surge pod runs
+ * beside the old one, and the migrate container connects while the old pod
+ * still holds its connections. Realtime takes one of them only when at least
+ * two are left; with one, realtime is off and the pool has it.
+ */
+export function connectionBudget(limit: number | null): ConnectionBudget {
+	if (limit === null)
+		return { perPod: APP_POOL_MAX + 1, poolMax: APP_POOL_MAX, realtime: true };
+	const perPod = Number.isInteger(limit) ? Math.floor(limit / 2) : 0;
+	if (perPod < 1)
+		throw new Error(
+			`a connection limit of ${limit} leaves no connection per pod (at least 2 needed)`,
+		);
+	const realtime = perPod >= 2;
+	return { perPod, poolMax: realtime ? perPod - 1 : perPod, realtime };
+}
+
+/**
+ * connectionBudget() for the platform contract's
+ * CLOUD_DATABASE_CONNECTION_LIMIT (a whole number; unset or empty: no limit).
+ */
+export function connectionBudgetFromEnv(
+	env: Record<string, string | undefined> = process.env,
+): ConnectionBudget {
+	const raw = nonEmpty(env.CLOUD_DATABASE_CONNECTION_LIMIT);
+	if (raw === null) return connectionBudget(null);
+	if (!/^[0-9]+$/.test(raw))
+		throw new Error(
+			`CLOUD_DATABASE_CONNECTION_LIMIT must be a whole number (got "${raw}")`,
+		);
+	return connectionBudget(Number(raw));
+}
 
 function nonEmpty(value: string | undefined): string | null {
 	return value === undefined || value.trim() === "" ? null : value.trim();
@@ -71,19 +120,27 @@ export interface Pool<TSchema extends Record<string, unknown>> {
 
 /**
  * The app's pool, once per process (keyed by `key`): lazy, so nothing
- * connects until the first getDb() or getClient().
+ * connects until the first getDb() or getClient(). `max` (default
+ * APP_POOL_MAX) is read when the pool opens.
  */
 export function createPool<TSchema extends Record<string, unknown>>(opts: {
 	settings: () => PgSettings;
 	schema: TSchema;
 	key?: string;
+	max?: number | (() => number);
 }): Pool<TSchema> {
 	const slot = processSingleton(opts.key ?? "db.pool", () => ({
 		shared: null as { client: SQL; db: BunSQLDatabase<TSchema> } | null,
 	}));
 	const open = () => {
 		if (slot.shared === null) {
-			const client = createSqlClient(opts.settings());
+			const max =
+				typeof opts.max === "function"
+					? opts.max()
+					: (opts.max ?? APP_POOL_MAX);
+			if (!Number.isInteger(max) || max < 1)
+				throw new Error(`pool max must be a whole number >= 1 (got ${max})`);
+			const client = createSqlClient(opts.settings(), { max });
 			slot.shared = { client, db: drizzle({ client, schema: opts.schema }) };
 		}
 		return slot.shared;

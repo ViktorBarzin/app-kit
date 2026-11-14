@@ -15,6 +15,8 @@ import fc from "fast-check";
 
 import {
 	APP_POOL_MAX,
+	connectionBudget,
+	connectionBudgetFromEnv,
 	createPool,
 	createSqlClient,
 	migrationLockKey,
@@ -96,6 +98,73 @@ test("readPasswordFile strips one trailing newline", async () => {
 
 test("the pool budget is 4 (plus 1 LISTEN = 5 per pod)", () => {
 	expect(APP_POOL_MAX).toBe(4);
+});
+
+describe("connectionBudget", () => {
+	test("no limit: the default pool of 4 plus the LISTEN connection", () => {
+		expect(connectionBudget(null)).toEqual({
+			perPod: 5,
+			poolMax: APP_POOL_MAX,
+			realtime: true,
+		});
+	});
+
+	test.each([
+		// [size, limit, per pod, pool, realtime]
+		["nano", 2, 1, 1, false],
+		["small", 4, 2, 1, true],
+		["medium", 8, 4, 3, true],
+	] as const)("%s (limit %d): %d per pod, pool %d, realtime %p", (_size, limit, perPod, poolMax, realtime) => {
+		expect(connectionBudget(limit)).toEqual({ perPod, poolMax, realtime });
+	});
+
+	test("an odd limit rounds down: 5 gives 2 per pod", () => {
+		expect(connectionBudget(5)).toEqual({
+			perPod: 2,
+			poolMax: 1,
+			realtime: true,
+		});
+	});
+
+	test.each([
+		0,
+		1,
+		-4,
+		2.5,
+		Number.NaN,
+	])("a limit of %p that leaves no whole connection per pod is an error", (limit) => {
+		expect(() => connectionBudget(limit)).toThrow("connection limit");
+	});
+});
+
+describe("connectionBudgetFromEnv", () => {
+	test("reads CLOUD_DATABASE_CONNECTION_LIMIT", () => {
+		expect(
+			connectionBudgetFromEnv({ CLOUD_DATABASE_CONNECTION_LIMIT: "4" }),
+		).toEqual({ perPod: 2, poolMax: 1, realtime: true });
+		expect(
+			connectionBudgetFromEnv({ CLOUD_DATABASE_CONNECTION_LIMIT: " 2 " }),
+		).toEqual({ perPod: 1, poolMax: 1, realtime: false });
+	});
+
+	test("unset or empty gives the default budget", () => {
+		expect(connectionBudgetFromEnv({})).toEqual(connectionBudget(null));
+		expect(
+			connectionBudgetFromEnv({ CLOUD_DATABASE_CONNECTION_LIMIT: "" }),
+		).toEqual(connectionBudget(null));
+	});
+
+	test.each([
+		"four",
+		"4x",
+		"0x4",
+		"1e1",
+		"-2",
+	])("a value of %p is a configuration error", (value) => {
+		expect(() =>
+			connectionBudgetFromEnv({ CLOUD_DATABASE_CONNECTION_LIMIT: value }),
+		).toThrow("CLOUD_DATABASE_CONNECTION_LIMIT");
+	});
 });
 
 describe.skipIf(!adminUrl)("migrations", () => {
@@ -214,6 +283,76 @@ describe.skipIf(!adminUrl)("pool", () => {
 		} finally {
 			await rm(dir, { recursive: true });
 		}
+	});
+
+	test.each([
+		1, 2,
+	])("max %d caps the open connections, read when the pool opens", async (max) => {
+		const url = await freshUrl();
+		let reads = 0;
+		const pool = createPool({
+			settings: () => ({ url, passwordFile: null }),
+			schema: { notes },
+			key: `test.pool.${crypto.randomUUID()}`,
+			max: () => {
+				reads += 1;
+				return max;
+			},
+		});
+		expect(reads).toBe(0);
+		try {
+			const pids = await Promise.all(
+				Array.from({ length: 6 }, async () => {
+					const [row] = await pool.getClient()`
+							select pg_backend_pid() as pid, pg_sleep(0.05)`;
+					return (row as { pid: number }).pid;
+				}),
+			);
+			expect(new Set(pids).size).toBe(max);
+			expect(reads).toBe(1);
+		} finally {
+			await pool.close();
+		}
+	});
+
+	test("a plain number works too, and the default is APP_POOL_MAX", async () => {
+		const url = await freshUrl();
+		for (const [max, expected] of [
+			[3, 3],
+			[undefined, APP_POOL_MAX],
+		] as const) {
+			const pool = createPool({
+				settings: () => ({ url, passwordFile: null }),
+				schema: { notes },
+				key: `test.pool.${crypto.randomUUID()}`,
+				...(max === undefined ? {} : { max }),
+			});
+			try {
+				const pids = await Promise.all(
+					Array.from({ length: 8 }, async () => {
+						const [row] = await pool.getClient()`
+							select pg_backend_pid() as pid, pg_sleep(0.05)`;
+						return (row as { pid: number }).pid;
+					}),
+				);
+				expect(new Set(pids).size).toBe(expected);
+			} finally {
+				await pool.close();
+			}
+		}
+	});
+
+	test.each([0, -1, 1.5])("max %p is refused when the pool opens", (max) => {
+		const pool = createPool({
+			settings: () => ({
+				url: "postgres://a@127.0.0.1:1/x",
+				passwordFile: null,
+			}),
+			schema: { notes },
+			key: `test.pool.${crypto.randomUUID()}`,
+			max,
+		});
+		expect(() => pool.getDb()).toThrow("pool max");
 	});
 });
 
