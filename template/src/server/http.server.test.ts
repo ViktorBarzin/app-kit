@@ -204,6 +204,26 @@ describe.skipIf(!ready)("the built server", () => {
 		expect((await get("/api/items", jar)).status).toBe(200);
 	});
 
+	test("the admin page is for the admins group, with a link to access requests", async () => {
+		mock.addUser({ username: "chief@example.com", groups: [app.adminsGroup] });
+		const admin = await signIn(
+			"chief@example.com",
+			"/api/auth/start?return=%2Fadmin",
+		);
+		expect(admin.hops.at(-1)?.url).toBe(`${server.origin}/admin`);
+		const html = await admin.response.text();
+		expect(html).toContain('data-testid="admin-home"');
+		expect(html).toContain('href="/admin/requests"');
+		mock.addUser({ username: "worker@example.com", groups: [app.usersGroup] });
+		const member = await signIn(
+			"worker@example.com",
+			"/api/auth/start?return=%2Fadmin",
+		);
+		const refused = await member.response.text();
+		expect(refused).toContain("admins only");
+		expect(refused).not.toContain('data-testid="admin-home"');
+	});
+
 	test("bearer tokens work for /api/items, and a bad one does not fall back to the cookie", async () => {
 		const user = mock.addUser({
 			username: "cli@example.com",
