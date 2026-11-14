@@ -14,7 +14,7 @@
     },
     "packages/auth": {
       "name": "@viktorbarzin/auth",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "dependencies": {
         "jose": "^6.2.12",
       },
@@ -75,7 +75,7 @@
     },
     "packages/pg": {
       "name": "@viktorbarzin/pg",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "devDependencies": {
         "@viktorbarzin/log": "workspace:^",
         "@viktorbarzin/runtime": "workspace:^",

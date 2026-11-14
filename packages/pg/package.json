@@ -1,6 +1,6 @@
 {
 	"name": "@viktorbarzin/pg",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "Drizzle on Bun SQL: a small pool that re-reads a rotated password file, migrations under an advisory lock, a migrate CLI and throwaway test databases.",
 	"license": "MIT",
 	"type": "module",
