@@ -90,13 +90,11 @@ were waiting for `@viktorbarzin/telemetry` and `@viktorbarzin/log` 1.0.
 
 ## Open questions
 
-- Trusted publishing does not work yet. With `NPM_CONFIG_LOGLEVEL=verbose`
-  the publish job shows npm's exchange answering
-  `OIDC token exchange error - package not found` for every package. npm
-  gives that answer when no trusted publisher on the package matches the
-  job (repository `ViktorBarzin/app-kit`, workflow `release.yml`,
-  environment `npm-publish`). So the publishers ADR-0001 describes either
-  were never saved or name something else. The token does every npm publish
-  until they are re-added, which needs Viktor's security key (`npm trust
-  list`, then `npm trust github ... --allow-publish`). The token expires on
-  2027-02-11.
+- Trusted publishing was re-added on 2026-11-14. Viktor approved
+  `npm trust github` for all eight packages: repository
+  `ViktorBarzin/app-kit`, workflow `release.yml`, environment `npm-publish`,
+  publish and stage publish allowed. Before that, npm's exchange answered
+  `package not found` for every package, so no matching publisher existed.
+  No release has run since, so the exchange is not yet proven in CI. The
+  next release's verbose `publish-npm` log shows it. The `NPM_TOKEN`
+  fallback stays until then; it expires on 2027-02-11.
