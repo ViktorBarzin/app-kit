@@ -1,18 +1,26 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { Button } from "#/components/ui/button";
 import {
 	approveAccessRequest,
+	getAccessStatus,
 	listAccessRequests,
 } from "#/server/access.functions";
 
 /**
  * Pending access requests, for admins. The admin check runs inside the
- * server functions; this page only shows what they return.
+ * server functions; this page only shows what they return. On Cloud there
+ * are no requests (the owner manages access in Cloud): it goes to /admin.
  */
 export const Route = createFileRoute("/admin/requests")({
-	loader: () => listAccessRequests(),
+	loader: async () => {
+		const status = await getAccessStatus({
+			data: { returnTo: "/admin/requests" },
+		});
+		if (status.cloud) throw redirect({ to: "/admin" });
+		return listAccessRequests();
+	},
 	component: RequestsPage,
 	errorComponent: ({ error }) => (
 		<main className="mx-auto max-w-xl p-6">

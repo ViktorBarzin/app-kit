@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as HealthzRouteImport } from './routes/healthz'
 import { Route as PendingRouteImport } from './routes/pending'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminRequestsRouteImport } from './routes/admin/requests'
 import { Route as ApiEventsRouteImport } from './routes/api/events'
 import { Route as ApiItemsRouteImport } from './routes/api/items'
@@ -32,6 +33,11 @@ const HealthzRoute = HealthzRouteImport.update({
 const PendingRoute = PendingRouteImport.update({
   id: '/pending',
   path: '/pending',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRequestsRoute = AdminRequestsRouteImport.update({
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/admin/requests': typeof AdminRequestsRoute
   '/api/events': typeof ApiEventsRoute
   '/api/items': typeof ApiItemsRoute
+  '/admin/': typeof AdminIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/finish': typeof ApiAuthFinishRoute
   '/api/auth/start': typeof ApiAuthStartRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/admin/requests': typeof AdminRequestsRoute
   '/api/events': typeof ApiEventsRoute
   '/api/items': typeof ApiItemsRoute
+  '/admin': typeof AdminIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/finish': typeof ApiAuthFinishRoute
   '/api/auth/start': typeof ApiAuthStartRoute
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/admin/requests': typeof AdminRequestsRoute
   '/api/events': typeof ApiEventsRoute
   '/api/items': typeof ApiItemsRoute
+  '/admin/': typeof AdminIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/auth/finish': typeof ApiAuthFinishRoute
   '/api/auth/start': typeof ApiAuthStartRoute
@@ -108,6 +117,7 @@ export interface FileRouteTypes {
     | '/admin/requests'
     | '/api/events'
     | '/api/items'
+    | '/admin/'
     | '/api/auth/$'
     | '/api/auth/finish'
     | '/api/auth/start'
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/admin/requests'
     | '/api/events'
     | '/api/items'
+    | '/admin'
     | '/api/auth/$'
     | '/api/auth/finish'
     | '/api/auth/start'
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/admin/requests'
     | '/api/events'
     | '/api/items'
+    | '/admin/'
     | '/api/auth/$'
     | '/api/auth/finish'
     | '/api/auth/start'
@@ -142,6 +154,7 @@ export interface RootRouteChildren {
   AdminRequestsRoute: typeof AdminRequestsRoute
   ApiEventsRoute: typeof ApiEventsRoute
   ApiItemsRoute: typeof ApiItemsRoute
+  AdminIndexRoute: typeof AdminIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiAuthFinishRoute: typeof ApiAuthFinishRoute
   ApiAuthStartRoute: typeof ApiAuthStartRoute
@@ -168,6 +181,13 @@ declare module '@tanstack/react-router' {
       path: '/pending'
       fullPath: '/pending'
       preLoaderRoute: typeof PendingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/requests': {
@@ -222,6 +242,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRequestsRoute: AdminRequestsRoute,
   ApiEventsRoute: ApiEventsRoute,
   ApiItemsRoute: ApiItemsRoute,
+  AdminIndexRoute: AdminIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiAuthFinishRoute: ApiAuthFinishRoute,
   ApiAuthStartRoute: ApiAuthStartRoute,

@@ -9,7 +9,8 @@
  *   to the event pipeline, errors to GlitchTip with a DSN;
  * - /metrics is served on METRICS_PORT, which the ingress does not route;
  * - the realtime LISTEN connection opens at boot, so its gauges mean
- *   something before the first SSE subscriber;
+ *   something before the first SSE subscriber, unless the connection budget
+ *   turns realtime off;
  * - SIGTERM/SIGINT close the SSE streams and LISTEN, let in-flight requests
  *   finish, send queued telemetry, close the metrics listener and the pool,
  *   then exit.
@@ -31,6 +32,7 @@ import {
 	databaseConfigured,
 	isDevelopment,
 	metricsPort,
+	realtimeEnabled,
 	serviceInfo,
 	telemetrySettings,
 } from "./env.server";
@@ -54,7 +56,8 @@ export default definePlugin(() => {
 			sentry: Sentry,
 		});
 	const metrics = startMetricsServer({ port: metricsPort() });
-	if (databaseConfigured()) void realtime.start().catch(() => {});
+	if (databaseConfigured() && realtimeEnabled())
+		void realtime.start().catch(() => {});
 	installShutdown({
 		beforeDrain: [{ name: "realtime", run: () => realtime.stop() }],
 		afterDrain: [

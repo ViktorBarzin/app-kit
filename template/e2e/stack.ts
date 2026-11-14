@@ -30,12 +30,16 @@ const mock = await startMockAuthentik({
 });
 mock.addUser({ username: "guest", email: null, groups: ["Public Guests"] });
 
+// This stack runs the Authentik mode: no Cloud variables from the shell.
+const inherited: Record<string, string | undefined> = { ...process.env };
+for (const key of Object.keys(inherited))
+	if (key.startsWith("CLOUD_")) delete inherited[key];
 const server = Bun.spawn(
 	[process.execPath, resolve(APP_DIR, ".output/server/index.mjs")],
 	{
 		cwd: APP_DIR,
 		env: {
-			...process.env,
+			...inherited,
 			NODE_ENV: "test",
 			HOST: "127.0.0.1",
 			PORT: String(port),

@@ -1,15 +1,20 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { app } from "#/app.config";
 import { Button } from "#/components/ui/button";
 import { getAccessStatus, recheckAccess } from "#/server/access.functions";
 
-/** Sign-in start, coming back here. */
-const SIGN_IN_HREF = "/api/auth/start?return=%2Fpending";
-
+/**
+ * Waiting for approval. On Cloud there is nothing to wait for (the edge
+ * decides who gets in), so the page sends people home.
+ */
 export const Route = createFileRoute("/pending")({
-	loader: () => getAccessStatus(),
+	loader: async () => {
+		const status = await getAccessStatus({ data: { returnTo: "/pending" } });
+		if (status.cloud) throw redirect({ to: "/" });
+		return status;
+	},
 	component: PendingPage,
 });
 
@@ -36,7 +41,7 @@ function PendingPage() {
 						Sign in to use {app.displayName}.
 					</p>
 					<Button asChild className="self-start">
-						<a href={SIGN_IN_HREF}>Sign in</a>
+						<a href={status.signInUrl}>Sign in</a>
 					</Button>
 				</>
 			) : status.member ? (

@@ -11,6 +11,8 @@ export const app = {
 	agentsGroup: "Starter Agents",
 	/** The Postgres NOTIFY channel for realtime events. */
 	realtimeChannel: "starter_events",
+	/** How often lists refetch while realtime is off (a connection budget of 1, e.g. Cloud's nano). */
+	pollMs: 10_000,
 	/**
 	 * Telemetry (app-kit ADR-0002, infra ADR-0041): pageviews, replay and
 	 * product events go to Rybbit, errors to GlitchTip. On by default for new

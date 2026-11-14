@@ -1,11 +1,23 @@
-/** Sign-in, sessions, bearer tokens, membership and CSRF (@viktorbarzin/auth). */
-import { createAppAuth } from "@viktorbarzin/auth";
+/**
+ * Identity (@viktorbarzin/auth). On Cloud (CLOUD_EDGE_SECRET set) the edge
+ * signs people in and forwards who they are; createCloudAuth trusts those
+ * headers only with the edge secret. Elsewhere the app signs people in
+ * itself through Authentik (sessions, bearer tokens, membership, CSRF).
+ * Both return the same interface, so the rest of the app does not care.
+ */
+import {
+	type AppAuth,
+	createAppAuth,
+	createCloudAuth,
+} from "@viktorbarzin/auth";
 import { setLogContext } from "@viktorbarzin/log";
 
 import { pool } from "./db.server";
-import { authConfig } from "./env.server";
+import { authConfig, cloudAuthConfig, isCloud } from "./env.server";
 
-export const appAuth = createAppAuth(() => authConfig(() => pool.getDb()));
+export const appAuth: AppAuth<Record<never, never>> = isCloud()
+	? createCloudAuth(cloudAuthConfig)
+	: createAppAuth(() => authConfig(() => pool.getDb()));
 
 /**
  * The signed-in member, or a 401/403 ApiError. Their `sub` becomes

@@ -1,12 +1,22 @@
 /**
- * The only module that reads process.env. It maps the Terraform app module's
- * env contract (infra modules/kubernetes/tanstack_app) onto the package
- * configs. Secrets may be given inline or as a `<NAME>_FILE` path.
+ * The only module that reads process.env. It maps the platform's env
+ * contract onto the package configs: the Terraform app module's
+ * (infra modules/kubernetes/tanstack_app), or Cloud's when CLOUD_EDGE_SECRET
+ * is set (cloud mode). Secrets may be given inline or as a `<NAME>_FILE` path.
  */
 import { readFileSync } from "node:fs";
-import type { AppAuthConfig, AuthDb } from "@viktorbarzin/auth";
+import type {
+	AppAuthConfig,
+	AuthDb,
+	CloudAuthConfig,
+} from "@viktorbarzin/auth";
 import { parseMetricsPort } from "@viktorbarzin/metrics";
-import { type PgSettings, pgSettingsFromEnv } from "@viktorbarzin/pg";
+import {
+	type ConnectionBudget,
+	connectionBudgetFromEnv,
+	type PgSettings,
+	pgSettingsFromEnv,
+} from "@viktorbarzin/pg";
 
 import { app } from "#/app.config";
 
@@ -66,6 +76,65 @@ export function databaseConfigured(): boolean {
 /** DATABASE_URL and DATABASE_PASSWORD_FILE. */
 export function pgSettings(): PgSettings {
 	return pgSettingsFromEnv(runtimeEnv);
+}
+
+/**
+ * The pod's Postgres connections: half of CLOUD_DATABASE_CONNECTION_LIMIT
+ * on Cloud, else the default pool of 4 plus the realtime LISTEN connection.
+ */
+export function connectionBudget(): ConnectionBudget {
+	return connectionBudgetFromEnv(runtimeEnv);
+}
+
+/** Realtime (LISTEN + SSE) is on unless the connection budget is 1. Off: the UI refetches. */
+export function realtimeEnabled(): boolean {
+	return connectionBudget().realtime;
+}
+
+export interface CloudSettings {
+	/** CLOUD_EDGE_SECRET: the edge sends it on every request it forwards. */
+	edgeSecret: string;
+	/** CLOUD_OWNER_EMAIL: the Project owner, this app's admin. */
+	ownerEmail: string;
+	/** CLOUD_PUBLIC_URL: `https://<host>`; the CSRF origin. */
+	publicUrl: string;
+	/** CLOUD_ACCESS: who the edge lets in. */
+	access: "public" | "private";
+}
+
+/** Cloud's env contract, or null outside Cloud (CLOUD_EDGE_SECRET unset). */
+export function cloudSettings(): CloudSettings | null {
+	const edgeSecret = secret("CLOUD_EDGE_SECRET");
+	if (edgeSecret === null) return null;
+	const ownerEmail = env("CLOUD_OWNER_EMAIL");
+	if (ownerEmail === null)
+		throw new Error("CLOUD_OWNER_EMAIL must be set with CLOUD_EDGE_SECRET");
+	const publicUrl = env("CLOUD_PUBLIC_URL");
+	if (publicUrl === null)
+		throw new Error("CLOUD_PUBLIC_URL must be set with CLOUD_EDGE_SECRET");
+	const access = env("CLOUD_ACCESS") ?? "public";
+	if (access !== "public" && access !== "private")
+		throw new Error(
+			`CLOUD_ACCESS must be "public" or "private" (got "${access}")`,
+		);
+	return { edgeSecret, ownerEmail, publicUrl, access };
+}
+
+/** True when the app runs on Cloud, behind its edge. */
+export function isCloud(): boolean {
+	return secret("CLOUD_EDGE_SECRET") !== null;
+}
+
+/** The identity config in cloud mode. Throws outside Cloud. */
+export function cloudAuthConfig(): CloudAuthConfig {
+	const cloud = cloudSettings();
+	if (cloud === null) throw new Error("CLOUD_EDGE_SECRET is not set");
+	return {
+		appSlug: app.slug,
+		edgeSecret: cloud.edgeSecret,
+		ownerEmail: cloud.ownerEmail,
+		publicUrl: cloud.publicUrl,
+	};
 }
 
 export function metricsPort(): number | null {

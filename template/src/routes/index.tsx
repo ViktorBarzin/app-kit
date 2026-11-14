@@ -12,17 +12,15 @@ import { getAccessStatus } from "#/server/access.functions";
 import { addItem, listItems } from "#/server/items.functions";
 
 /**
- * The auth wall: signed-out visitors go to sign-in, people waiting for
- * approval go to /pending, members see their items.
+ * The auth wall: signed-out visitors go to sign-in (the link comes from the
+ * auth object: the app's own on Authentik, the edge's on Cloud), people
+ * waiting for approval go to /pending, members see their items.
  */
 export const Route = createFileRoute("/")({
 	loader: async () => {
-		const status = await getAccessStatus();
+		const status = await getAccessStatus({ data: { returnTo: "/" } });
 		if (!status.signedIn)
-			throw redirect({
-				href: "/api/auth/start?return=%2F",
-				reloadDocument: true,
-			});
+			throw redirect({ href: status.signInUrl, reloadDocument: true });
 		if (!status.member) throw redirect({ to: "/pending" });
 		return status;
 	},
@@ -33,10 +31,13 @@ function Home() {
 	const status = Route.useLoaderData();
 	const queryClient = useQueryClient();
 	const [title, setTitle] = useState("");
-	useRealtimeInvalidation({ queryClient });
+	// Other tabs' writes arrive over SSE; when the connection budget keeps
+	// realtime off, the list refetches every app.pollMs instead.
+	useRealtimeInvalidation({ queryClient, enabled: status.realtime });
 	const items = useQuery({
 		queryKey: itemKeys.all,
 		queryFn: () => listItems(),
+		refetchInterval: status.realtime ? false : app.pollMs,
 	});
 	const add = useMutation({
 		mutationFn: (next: string) =>
@@ -58,8 +59,13 @@ function Home() {
 		<main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 p-6">
 			<header className="flex items-baseline justify-between">
 				<h1 className="text-2xl font-semibold">{app.displayName}</h1>
-				<span className="text-sm text-muted-foreground" data-testid="username">
-					{status.username}
+				<span className="flex items-baseline gap-3 text-sm text-muted-foreground">
+					<span data-testid="username">{status.username}</span>
+					{status.signOutUrl ? (
+						<a className="underline" href={status.signOutUrl}>
+							Sign out
+						</a>
+					) : null}
 				</span>
 			</header>
 			<form className="flex gap-2" onSubmit={submit}>
@@ -97,8 +103,8 @@ function Home() {
 				</ul>
 			)}
 			{status.admin ? (
-				<a className="text-sm underline" href="/admin/requests">
-					Access requests
+				<a className="text-sm underline" href="/admin">
+					Admin
 				</a>
 			) : null}
 		</main>
