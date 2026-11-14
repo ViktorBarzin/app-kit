@@ -82,11 +82,21 @@ were waiting for `@viktorbarzin/telemetry` and `@viktorbarzin/log` 1.0.
   runtime, metrics and pg returned E403: their npm publishing access is set
   to require 2FA and disallow tokens. That setting changes only on
   npmjs.com, with Viktor's security key.
+- On 2026-11-14 Viktor changed the publishing access of those four on
+  npmjs.com, and the next run published log, runtime, metrics and pg 1.0.0.
+  npm answered each upload with 202 and served the version about a minute
+  later. Every Forgejo version is now on npm, each with a provenance
+  statement.
 
 ## Open questions
 
-- Why the 1.0.0 npm publish returned E404 when the seven packages already
-  had trusted publishers (ADR-0001). The 2026-11-13 run shows the
-  trusted-publishing exchange still fails for every package: npm fell back to
-  the token each time. The trusted publisher settings on npmjs.com need a
-  check against the workflow.
+- Trusted publishing does not work yet. With `NPM_CONFIG_LOGLEVEL=verbose`
+  the publish job shows npm's exchange answering
+  `OIDC token exchange error - package not found` for every package. npm
+  gives that answer when no trusted publisher on the package matches the
+  job (repository `ViktorBarzin/app-kit`, workflow `release.yml`,
+  environment `npm-publish`). So the publishers ADR-0001 describes either
+  were never saved or name something else. The token does every npm publish
+  until they are re-added, which needs Viktor's security key (`npm trust
+  list`, then `npm trust github ... --allow-publish`). The token expires on
+  2027-02-11.
