@@ -298,8 +298,19 @@ flowchart TD
 
 ## Running on Cloud
 
-The same template runs on Cloud (`viktor/cloud`) with no infra steps. Cloud
-sets `CLOUD_EDGE_SECRET`, and the app then runs in cloud mode:
+The same template runs on Cloud (`viktor/cloud`) with no infra steps.
+Start an app there with the `cloud` CLI, which the devvm has for every user.
+`cloud login` signs in once with a device code. Then `cloud new <app>
+--access private|public --yes` copies `viktor/app-template` into your own
+Forgejo account, creates a Project with the app and its own nano Postgres,
+pushes the first commit and applies it; each later push to `master` builds
+and deploys. `cloud new` uses the Forgejo login git holds: an access token
+with the `write:repository` and `write:user` scopes in git's credentials.
+For a private app, `cloud invite <project> <app> <email>` adds a person to
+its allow list and prints a one-time sign-up code for someone with no
+homelab account. `cloud --help` lists the other commands.
+
+Cloud sets `CLOUD_EDGE_SECRET`, and the app then runs in cloud mode:
 
 ```mermaid
 flowchart LR
