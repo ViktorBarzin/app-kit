@@ -1,7 +1,8 @@
 /**
  * The app's pool, lazy, once per process. Its size comes from the
  * connection budget (env.server.ts): 4 by default (plus the realtime LISTEN
- * = 5 per pod, the ADR budget), or half of Cloud's per-role connection limit.
+ * = 5 per pod, the ADR budget). On Cloud the pod takes half the per-role
+ * connection limit: the pool, plus the LISTEN connection when realtime is on.
  */
 import { createPool } from "@viktorbarzin/pg";
 

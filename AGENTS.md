@@ -28,8 +28,9 @@ one-way push mirror where Actions run; never commit there.
   timings are config inputs with defaults; the app's `env.server.ts` maps its
   environment onto them. Only `@viktorbarzin/log` reads env vars
   (`LOG_LEVEL`, and `OTEL_SERVICE_NAME`, `SERVICE_VERSION`,
-  `DEPLOYMENT_ENVIRONMENT` for the service fields), and `@viktorbarzin/pg`'s `pgSettingsFromEnv`/`runMigrateCli`
-  read the platform contract when the app asks them to.
+  `DEPLOYMENT_ENVIRONMENT` for the service fields), and `@viktorbarzin/pg`'s
+  `pgSettingsFromEnv`, `connectionBudgetFromEnv` and `runMigrateCli` read the
+  platform contract when the app asks them to.
 - No package imports `@tanstack/react-start` or `@tanstack/react-router`.
   Start ships breaking changes in minor releases; the packages take a
   `Request` and return a `Response` or data, and the app wires them in.

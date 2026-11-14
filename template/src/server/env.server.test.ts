@@ -172,7 +172,6 @@ describe("cloud mode", () => {
 		CLOUD_EDGE_SECRET_FILE: undefined,
 		CLOUD_OWNER_EMAIL: "owner@example.com",
 		CLOUD_PUBLIC_URL: "https://starter.example",
-		CLOUD_ACCESS: "private",
 		CLOUD_DATABASE_CONNECTION_LIMIT: undefined,
 	};
 
@@ -189,7 +188,6 @@ describe("cloud mode", () => {
 			edgeSecret: SECRET,
 			ownerEmail: "owner@example.com",
 			publicUrl: "https://starter.example",
-			access: "private",
 		});
 		expect(cloudAuthConfig()).toMatchObject({
 			appSlug: "starter",
@@ -215,15 +213,9 @@ describe("cloud mode", () => {
 		}
 	});
 
-	test("CLOUD_ACCESS defaults to public", () => {
-		setEnv({ ...cloud, CLOUD_ACCESS: undefined });
-		expect(cloudSettings()?.access).toBe("public");
-	});
-
 	test.each<[string, Record<string, string | undefined>, string]>([
 		["no owner email", { CLOUD_OWNER_EMAIL: undefined }, "CLOUD_OWNER_EMAIL"],
 		["no public URL", { CLOUD_PUBLIC_URL: undefined }, "CLOUD_PUBLIC_URL"],
-		["an unknown access mode", { CLOUD_ACCESS: "family" }, "CLOUD_ACCESS"],
 	])("%s is a configuration error", (_label, values, name) => {
 		setEnv({ ...cloud, ...values });
 		expect(() => cloudSettings()).toThrow(name);

@@ -45,11 +45,14 @@ are, except where this section says otherwise.
 - **Migrations.** `bun run db:generate` writes them to `drizzle/`; commit
   them. Before each deploy Cloud runs `entrypoints/migrate.js` from the image,
   which applies them. Keep them additive (see Database).
-- **Connections.** The pool takes half the database's connection limit. On
-  a nano database realtime is off and lists refetch every `app.pollMs`;
+- **Connections.** The pod takes half the database's connection limit: the
+  pool, plus one LISTEN connection when realtime is on. On a nano database realtime is off and lists refetch every `app.pollMs`;
   invalidate the query after a write, as `routes/index.tsx` does.
 - **Test locally first.** Each push costs build minutes. Before you push,
-  run `bun run check && bun run typecheck && bun run test && bun run test:e2e`.
+  start a throwaway Postgres (README, "Run locally") and run
+  `bun run check && bun run typecheck && bun run build && TEST_DATABASE_URL=<admin url> bun run test && TEST_DATABASE_URL=<admin url> bun run test:e2e`.
+  The cloud-mode tests need the build and the database; without them they
+  are skipped. A run with skipped tests is not done.
 
 <!-- cloud:begin -->
 <!-- Cloud replaces this block with this App's facts. -->

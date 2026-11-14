@@ -333,4 +333,5 @@ flowchart LR
 
 The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
 `CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS`
-(`public` or `private`), read in `src/server/env.server.ts`.
+(`public` or `private`). `src/server/env.server.ts` reads the first four;
+`CLOUD_ACCESS` is the edge's setting, and the app does not read it.

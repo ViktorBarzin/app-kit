@@ -98,8 +98,6 @@ export interface CloudSettings {
 	ownerEmail: string;
 	/** CLOUD_PUBLIC_URL: `https://<host>`; the CSRF origin. */
 	publicUrl: string;
-	/** CLOUD_ACCESS: who the edge lets in. */
-	access: "public" | "private";
 }
 
 /** Cloud's env contract, or null outside Cloud (CLOUD_EDGE_SECRET unset). */
@@ -112,12 +110,7 @@ export function cloudSettings(): CloudSettings | null {
 	const publicUrl = env("CLOUD_PUBLIC_URL");
 	if (publicUrl === null)
 		throw new Error("CLOUD_PUBLIC_URL must be set with CLOUD_EDGE_SECRET");
-	const access = env("CLOUD_ACCESS") ?? "public";
-	if (access !== "public" && access !== "private")
-		throw new Error(
-			`CLOUD_ACCESS must be "public" or "private" (got "${access}")`,
-		);
-	return { edgeSecret, ownerEmail, publicUrl, access };
+	return { edgeSecret, ownerEmail, publicUrl };
 }
 
 /** True when the app runs on Cloud, behind its edge. */
