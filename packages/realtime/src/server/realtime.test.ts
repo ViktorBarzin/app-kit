@@ -189,3 +189,33 @@ describe.skipIf(!adminUrl)("createRealtime", () => {
 		await rt.stop();
 	}, 10_000);
 });
+
+describe("realtime left off", () => {
+	test("publishing without start opens no LISTEN connection", async () => {
+		let listenClients = 0;
+		const notified: string[] = [];
+		const rt = createRealtime<RealtimeEvent>(() => ({
+			channel: `off_${crypto.randomUUID().replaceAll("-", "")}`,
+			createListenClient: () => {
+				listenClients += 1;
+				throw new Error("realtime is off; no LISTEN connection");
+			},
+			notify: async (_channel, payload) => {
+				notified.push(payload);
+			},
+			registry: new client.Registry(),
+		}));
+		const executed: unknown[] = [];
+		await rt.publishInTx(
+			{ execute: async (query) => executed.push(query) },
+			"alice",
+			invalidate(),
+		);
+		await rt.publish("alice", invalidate());
+		expect(executed).toHaveLength(1);
+		expect(notified).toHaveLength(1);
+		expect(rt.size()).toBe(0);
+		await rt.stop();
+		expect(listenClients).toBe(0);
+	});
+});
