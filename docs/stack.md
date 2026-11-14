@@ -144,7 +144,8 @@ each test creates and drops its own database, then `bun run test:e2e`.
 Each app gets its own database and role on the shared CloudNativePG cluster.
 No app runs its own database pod.
 
-- **Connections.** Each pod uses 5: a pool of 4 and 1 `LISTEN` connection.
+- **Connections.** Each pod uses 5: a pool of 4 and 1 `LISTEN` connection
+  (on Cloud, half the role's connection limit; see "Running on Cloud").
   The `migrate` init container uses 1 more while it runs. A CronJob uses at
   most 2. The primary allows 200 in total, so more replicas need a check of
   the budget first.
@@ -294,3 +295,42 @@ flowchart TD
   The app's tests run before the deploy job and stop a breaking bump.
 - The Bun version in `packageManager`, the `oven/bun` base image and CI's
   `setup-bun` move together in one commit.
+
+## Running on Cloud
+
+The same template runs on Cloud (`viktor/cloud`) with no infra steps. Cloud
+sets `CLOUD_EDGE_SECRET`, and the app then runs in cloud mode:
+
+```mermaid
+flowchart LR
+  B[Browser] --> E["App's edge, Caddy"]
+  E -- "/oauth2/auth subrequest" --> O[oauth2-proxy]
+  E -- "/oauth2/*" --> O
+  E -- "X-Cloud-User-* + X-Cloud-Edge-Secret" --> A["App, createCloudAuth"]
+  A --> PG[("Project Postgres<br/>connection limit 2, 4 or 8")]
+```
+
+- **Identity.** The edge signs people in and sends `X-Cloud-User-Id`,
+  `-Email` and `-Username`. `createCloudAuth` in `@viktorbarzin/auth` reads
+  them only with the correct edge secret; else the request is anonymous. The
+  `CLOUD_OWNER_EMAIL` is the admin. There are no access requests, so the
+  `/pending` and `/admin/requests` pages redirect. The edge decides who may
+  use a private app. Sign-in and sign-out links are `/oauth2/start?rd=` and
+  `/oauth2/sign_out?rd=`. Bearer tokens are not accepted.
+- **Connections.** A pod uses `floor(CLOUD_DATABASE_CONNECTION_LIMIT / 2)`,
+  because a rollout overlaps two pods. Realtime needs 2 of them; on a nano
+  database (limit 2) it is off, and lists refetch every `app.pollMs`.
+
+| Size | Limit | Pool | LISTEN |
+|---|---|---|---|
+| nano | 2 | 1 | off |
+| small | 4 | 1 | 1 |
+| medium | 8 | 3 | 1 |
+
+- **Migrations** run from `drizzle/` before each deploy, in an init
+  container with the args `["entrypoints/migrate.js"]`.
+- **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
+
+The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
+`CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS`
+(`public` or `private`), read in `src/server/env.server.ts`.

@@ -16,7 +16,8 @@ The build fails at its first step with "publish @viktorbarzin packages first"
 until those packages are on Forgejo's npm registry and the export has written
 `bun.lock`. `bunfig.toml` points the `@viktorbarzin` scope at that registry.
 
-Agent and code conventions are in [AGENTS.md](AGENTS.md). The longer version
+Agent and code conventions are in [AGENTS.md](AGENTS.md); its "On Cloud"
+section covers running this app on Cloud, where no infra steps apply. The longer version
 of the infra steps is [docs/new-app.md](docs/new-app.md).
 
 ## Requirements
