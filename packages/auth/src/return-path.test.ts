@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { safeReturnPath } from "./index.js";
+import { createAppAuth, safeReturnPath } from "./index.js";
 
 describe("safeReturnPath", () => {
 	test.each([
@@ -44,5 +44,37 @@ describe("safeReturnPath", () => {
 						expect(result.startsWith("//")).toBe(false);
 						expect(result.startsWith("/\\")).toBe(false);
 					}
+	});
+});
+
+describe("createAppAuth links", () => {
+	const appAuth = createAppAuth(() => ({
+		appName: "App",
+		appSlug: "app",
+		db: () => {
+			throw new Error("no database in this test");
+		},
+		publicOrigins: ["https://app.example"],
+		betterAuthSecret: null,
+		oidc: null,
+		authentik: {
+			apiUrl: null,
+			readerToken: null,
+			approverToken: null,
+			usersGroupPk: null,
+		},
+		groups: { users: "App Users", admins: "App Admins" },
+		signup: "request",
+	}));
+
+	test("signInUrl is the start route with a safe return path", () => {
+		expect(appAuth.signInUrl("/items")).toBe("/api/auth/start?return=%2Fitems");
+		expect(appAuth.signInUrl("//evil.example")).toBe(
+			"/api/auth/start?return=%2F",
+		);
+	});
+
+	test("signOutUrl is null: Better Auth signs out with a POST", () => {
+		expect(appAuth.signOutUrl("/")).toBeNull();
 	});
 });

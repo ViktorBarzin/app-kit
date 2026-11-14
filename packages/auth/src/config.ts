@@ -9,9 +9,11 @@ export type AuthDb = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
 export interface AuthUser {
 	/** OIDC `sub`; null only for the dev user. */
 	sub: string | null;
-	/** `preferred_username`. */
+	/** `preferred_username`; in cloud mode the edge's username, else the email. */
 	username: string;
-	via: "session" | "token" | "dev";
+	/** The verified email; set in cloud mode only. */
+	email?: string;
+	via: "session" | "token" | "dev" | "cloud";
 	/** In the users, admins or agents group, as of the last check. */
 	member: boolean;
 	/** In the admins group. */

@@ -11,7 +11,9 @@ App-side sign-in against Authentik, built on Better Auth 1.7:
   fails closed when the app cannot ask and keeps the last answer when the
   provider is unreachable;
 - request and approve sign-up, the explicit CSRF origin check, and identity
-  metrics.
+  metrics;
+- a cloud mode (`createCloudAuth`) for an app behind a platform edge that
+  signs people in itself and forwards who they are as headers.
 
 <!-- typecheck-preamble
 import type { AuthDb } from "@viktorbarzin/auth";
@@ -50,13 +52,60 @@ prefix, timing and metric prefix is a config input (see `AppAuthConfig`).
 
 | Export | |
 |---|---|
-| `createAppAuth(config)` | `startSignIn`, `finishSignIn`, `handleAuthRequest`, `signInRedirect`, `startUrl`, `resolveUser`, `requireUser` (401 `unauthorized`, 403 `access_pending`), `handleApi`, `accessStatus`, `requireAdmin`, `listPendingRequests`, `approveRequest` (404 / 409 / 502), `currentMembership`, `csrfRejection`, `getAuth` |
+| `createAppAuth(config)` | `startSignIn`, `finishSignIn`, `handleAuthRequest`, `signInRedirect`, `startUrl`, `signInUrl`, `signOutUrl` (null: Better Auth signs out with a POST), `resolveUser`, `requireUser` (401 `unauthorized`, 403 `access_pending`), `handleApi`, `accessStatus`, `requireAdmin`, `listPendingRequests`, `approveRequest` (404 / 409 / 502), `currentMembership`, `csrfRejection`, `getAuth` |
+| `createCloudAuth(config)`, `CLOUD_HEADERS`, `CLOUD_DEFAULTS` | the same interface in cloud mode (below) |
 | `enrich(db, { sub, username })` (config) | extra per-user fields, looked up on each resolved request and once at sign-in |
 | `safeReturnPath`, `isSameOriginRequest`, `needsOriginCheck`, `membershipFromGroups` | the pure checks |
 | `createAuthentikClient`, `AuthentikUnavailable`, `AuthentikNotConfigured` | the three Authentik API calls |
-| metrics (prefix `p`, default `auth`) | `p_membership_checks_total{outcome}`, `p_api_token_verifications_total{outcome}`, `p_csrf_rejections_total`, `p_sign_ins_total{outcome}` |
+| metrics (prefix `p`, default `auth`) | `p_membership_checks_total{outcome}`, `p_api_token_verifications_total{outcome}`, `p_csrf_rejections_total`, `p_sign_ins_total{outcome}`, `p_cloud_edge_refusals_total` |
 | `@viktorbarzin/auth/schema` | `auth_user`, `auth_session`, `auth_account`, `auth_verification`, `member_checks`, `access_requests` for the app's Drizzle schema |
 | `@viktorbarzin/auth/testing` | `startMockAuthentik` (OIDC provider plus the API calls), `startBuiltServer`, `CookieJar`, `follow` |
+
+## Cloud mode
+
+`createCloudAuth` returns the same `AppAuth` interface for an app that runs
+behind a platform edge with its own oauth2-proxy. The edge forwards
+`X-Cloud-User-Id`, `X-Cloud-User-Email`, `X-Cloud-User-Username` (when the
+provider has one) and `X-Cloud-Edge-Secret`, after deleting any copies the
+client sent.
+
+- Identity comes only from those headers, and only when
+  `X-Cloud-Edge-Secret` equals `edgeSecret` (compared in constant time, at
+  least 32 characters). Without it the request is anonymous, and
+  `<prefix>_cloud_edge_refusals_total` counts it.
+- Everyone the edge lets through is a member (`via: "cloud"`, `email` set);
+  the edge decides who may use a private app. The `ownerEmail` is an admin,
+  matched without case; `isAdmin` adds admins from the app's own table.
+- `signInUrl(path)` is `/oauth2/start?rd=<path>` and `signOutUrl(path)` is
+  `/oauth2/sign_out?rd=<path>`, with `path` checked by `safeReturnPath`. The
+  app's own `<basePath>/start` route redirects there too.
+- Bearer tokens are not supported: a call with only `Authorization` gets 401
+  `unauthorized` saying so, and the CSRF check does not exempt it.
+- There are no access requests: `listPendingRequests` is empty for an admin,
+  `approveRequest` is 404, and `currentMembership` throws.
+- The CSRF allow-list is the origin of `publicUrl`.
+
+<!-- typecheck-preamble
+declare const env: Record<string, string | undefined>;
+declare const db: { isAppAdmin(email: string): Promise<boolean> };
+-->
+```ts
+import { createCloudAuth } from "@viktorbarzin/auth";
+
+export const appAuth = createCloudAuth(() => ({
+	appSlug: "myapp",
+	edgeSecret: env.CLOUD_EDGE_SECRET ?? "",
+	ownerEmail: env.CLOUD_OWNER_EMAIL ?? "",
+	publicUrl: env.CLOUD_PUBLIC_URL ?? "",
+	// Optional: more admins from the app's own table.
+	isAdmin: (who) => db.isAppAdmin(who.email),
+}));
+
+// Links for the UI: appAuth.signInUrl("/"), appAuth.signOutUrl("/")
+```
+
+A bad config value (a short secret, no owner email, a public URL that is not
+http(s)) makes every call throw, so a misconfigured app fails closed.
 
 A schema change is a major version: apps regenerate their migrations.
 Peers: `better-auth` >=1.7.7 <1.8 (the callback path changed in 1.7),

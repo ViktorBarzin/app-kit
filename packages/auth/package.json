@@ -1,7 +1,7 @@
 {
 	"name": "@viktorbarzin/auth",
 	"version": "1.0.0",
-	"description": "App-side OIDC sign-in with Better Auth against Authentik: sessions, bearer tokens, membership re-checks, request and approve, CSRF origin checks.",
+	"description": "App-side OIDC sign-in with Better Auth against Authentik: sessions, bearer tokens, membership re-checks, request and approve, CSRF origin checks; and a cloud mode that trusts a platform edge's identity headers.",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",

@@ -13,6 +13,10 @@
  * - it carries neither header nor a cookie (a non-browser client with nothing
  *   ambient to abuse).
  * Everything else is refused, including `Origin: null`.
+ *
+ * Where identity does not come from a token (an edge that sets identity
+ * headers from its own cookie), pass `trustBearer: false` and say what the
+ * ambient credential is with `hasAmbientCredential`.
  */
 import { bearerToken } from "@viktorbarzin/oidc-token";
 
@@ -29,6 +33,15 @@ export function needsOriginCheck(
 	return streamPaths.includes(new URL(request.url).pathname);
 }
 
+export interface OriginCheckOptions {
+	/** Let a request with a bearer token through unchecked (identity then comes from the token only). Default true. */
+	trustBearer?: boolean;
+	/** True when the request carries an ambient credential. Default: it has a Cookie header. */
+	hasAmbientCredential?: (request: Request) => boolean;
+}
+
+const hasCookie = (request: Request) => request.headers.get("cookie") !== null;
+
 /**
  * True when the request may proceed. `allowed` empty means the request URL's
  * own origin (dev, tests).
@@ -37,9 +50,10 @@ export function isSameOriginRequest(
 	request: Request,
 	allowed: string[],
 	streamPaths?: string[],
+	opts: OriginCheckOptions = {},
 ): boolean {
 	if (!needsOriginCheck(request, streamPaths)) return true;
-	if (bearerToken(request) !== null) return true;
+	if ((opts.trustBearer ?? true) && bearerToken(request) !== null) return true;
 	const headers = request.headers;
 	const fetchSite = headers.get("sec-fetch-site");
 	if (fetchSite !== null) return fetchSite === "same-origin";
@@ -49,5 +63,5 @@ export function isSameOriginRequest(
 			allowed.length > 0 ? allowed : [new URL(request.url).origin];
 		return origins.includes(origin);
 	}
-	return headers.get("cookie") === null;
+	return !(opts.hasAmbientCredential ?? hasCookie)(request);
 }

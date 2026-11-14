@@ -11,6 +11,13 @@ export {
 	type AuthentikUser,
 	createAuthentikClient,
 } from "./authentik.js";
+export {
+	CLOUD_DEFAULTS,
+	CLOUD_HEADERS,
+	type CloudAuthConfig,
+	type CloudIdentity,
+	createCloudAuth,
+} from "./cloud.js";
 export type {
 	AccessStatus,
 	AppAuthConfig,
@@ -22,7 +29,11 @@ export type {
 	PendingRequestView,
 } from "./config.js";
 export { DEFAULTS } from "./config.js";
-export { isSameOriginRequest, needsOriginCheck } from "./csrf.js";
+export {
+	isSameOriginRequest,
+	needsOriginCheck,
+	type OriginCheckOptions,
+} from "./csrf.js";
 export {
 	type Membership,
 	type MembershipOptions,

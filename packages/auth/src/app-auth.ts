@@ -212,6 +212,10 @@ export interface AppAuth<TExtra extends object> {
 	/** A redirect into sign-in that comes back to `returnTo`; null when sign-in is off. */
 	signInRedirect(returnTo: string): Response | null;
 	startUrl(returnTo: string, forceLogin: boolean): string;
+	/** A link that signs the browser in and comes back to `returnTo` (a same-origin path). */
+	signInUrl(returnTo: string): string;
+	/** A link that signs the browser out and lands on `returnTo`; null when sign-out is not a link (Better Auth's is a POST to <basePath>/sign-out). */
+	signOutUrl(returnTo: string): string | null;
 	/** The caller, or null. A refused bearer token is null even with a cookie. Membership is not enforced. */
 	resolveUser(request: Request): Promise<(AuthUser & TExtra) | null>;
 	/** The caller, or ApiError 401 unauthorized / 403 access_pending. */
@@ -644,6 +648,16 @@ export function createAppAuth<TExtra extends object = Record<never, never>>(
 				returnTo,
 				forceLogin,
 			);
+		},
+		signInUrl(returnTo) {
+			return pathWithReturn(
+				signInPaths(current().basePath).start,
+				returnTo,
+				false,
+			);
+		},
+		signOutUrl() {
+			return null;
 		},
 		resolveUser,
 		requireUser,

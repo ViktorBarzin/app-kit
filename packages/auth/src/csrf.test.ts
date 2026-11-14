@@ -120,6 +120,48 @@ describe("isSameOriginRequest", () => {
 		).toBe(true);
 	});
 
+	test("trustBearer: false checks a bearer request like any other", () => {
+		const bearer = {
+			authorization: "Bearer eyJ.a.b",
+			origin: "https://evil.example",
+		};
+		expect(
+			isSameOriginRequest(
+				req("POST", "/api/items", bearer),
+				[PUBLIC],
+				undefined,
+				{
+					trustBearer: false,
+				},
+			),
+		).toBe(false);
+		expect(
+			isSameOriginRequest(
+				req("POST", "/api/items", { ...bearer, origin: PUBLIC }),
+				[PUBLIC],
+				undefined,
+				{ trustBearer: false },
+			),
+		).toBe(true);
+	});
+
+	test("hasAmbientCredential replaces the cookie test", () => {
+		const ambient = (r: Request) => r.headers.has("x-identity");
+		expect(
+			isSameOriginRequest(
+				req("POST", "/api/items", { "x-identity": "alice" }),
+				[PUBLIC],
+				undefined,
+				{ hasAmbientCredential: ambient },
+			),
+		).toBe(false);
+		expect(
+			isSameOriginRequest(req("POST", "/api/items"), [PUBLIC], undefined, {
+				hasAmbientCredential: ambient,
+			}),
+		).toBe(true);
+	});
+
 	test("no browser headers: passes without a cookie, refused with one", () => {
 		expect(isSameOriginRequest(req("POST", "/api/items"), [PUBLIC])).toBe(true);
 		expect(

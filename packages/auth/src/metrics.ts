@@ -10,6 +10,8 @@ export interface AuthMetrics {
 	csrfRejections: Counter<string>;
 	/** Sign-ins: member, pending, or guest (sent back with prompt=login). */
 	signIns: Counter<"outcome">;
+	/** Cloud mode: requests with identity headers but without the edge secret. */
+	edgeRefusals: Counter<string>;
 }
 
 function counter<L extends string>(
@@ -52,6 +54,12 @@ export function authMetrics(
 			`${p}_sign_ins_total`,
 			"OIDC sign-ins completed by outcome.",
 			["outcome"],
+		),
+		edgeRefusals: counter(
+			registry,
+			`${p}_cloud_edge_refusals_total`,
+			"Requests with identity headers that lacked the edge secret (cloud mode).",
+			[],
 		),
 	};
 }
