@@ -145,6 +145,9 @@ export function parseExportArgs(argv: readonly string[]): ExportArgs {
 function run(cmd: string[], cwd: string): void {
 	const proc = Bun.spawnSync(cmd, {
 		cwd,
+		// Explicit: Bun's default is the environment at startup, so values set
+		// later in process.env (a git identity in tests) would not reach git.
+		env: process.env,
 		stdout: "inherit",
 		stderr: "inherit",
 	});
