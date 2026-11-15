@@ -30,8 +30,9 @@ are, except where this section says otherwise.
 - **Identity.** Cloud's edge signs people in. In a server function, call
   `requireMember(getRequest())` from `auth.server.ts` (it wraps
   `appAuth.requireUser()`): it returns the user (`sub`, `username`, `email`)
-  or throws 401. Key your data on `user.sub`. `appAuth.resolveUser()` returns
-  null for a signed-out visitor instead of throwing.
+  or throws 401. Key a person's own data on `user.sub`; data every member
+  shares has no owner column (see "Shared data"). `appAuth.resolveUser()`
+  returns null for a signed-out visitor instead of throwing.
 - **Admin.** The Project owner (`CLOUD_OWNER_EMAIL`) is the admin:
   `user.admin` is true, and `appAuth.requireAdmin(user)` guards admin
   actions. Put admin tools on `/admin`. To add admins, keep them in your own
@@ -68,7 +69,10 @@ are, except where this section says otherwise.
   Build before typecheck: `vite build` writes `src/routeTree.gen.ts`, and
   `tsc` fails on a new route file until it does. The cloud-mode tests need
   the build and the database; without them they are skipped. A run with
-  skipped tests is not done.
+  skipped tests is not done. If the browser install or a test fails with
+  `ENOSPC`, the temp directory is full: set `TMPDIR` to a directory under
+  `$HOME` (`mkdir -p ~/.cache/tmp && export TMPDIR=~/.cache/tmp`) and run it
+  again.
 
 <!-- cloud:begin -->
 <!-- Cloud replaces this block with this App's facts. -->
@@ -76,8 +80,8 @@ are, except where this section says otherwise.
 
 ## Replacing the example
 
-The template ships an example, `items`: the home page's list with its "New
-item" field, `src/server/items.functions.ts` and `items.server.ts`, the
+The template ships an example, `items`: each person's own list on the home
+page, with its "New item" field, `src/server/items.functions.ts` and `items.server.ts`, the
 `/api/items` route, the `items` table and `itemKeys` in
 `src/lib/query-keys.ts`. Replace it with the app's own data, but keep the
 tests that check the plumbing passing, pointed at the new code:
@@ -86,7 +90,10 @@ tests that check the plumbing passing, pointed at the new code:
   (fan-out to another tab, the resync after a missed event) and
   `e2e/cloud.spec.ts` (cloud mode) drive the home page through the "New
   item" label and the `items` and `no-items` test ids. Give the new main
-  page a label and test ids of its own and use them there.
+  page a label and test ids of its own and use them there. These tests
+  expect a fresh user to see an empty list; for shared data, wait for the
+  list to finish loading instead (a test id on the list's container, which
+  is there whether it is empty or not), since other tests' rows are there.
 - `/silent-item` in `e2e/stack.ts` writes a row behind the app's back for
   the resync test. Make it insert into the new table.
 - `src/server/http.server.test.ts`, `cloud.server.test.ts` and
@@ -95,10 +102,22 @@ tests that check the plumbing passing, pointed at the new code:
   them at an `/api` route of the new app, and change `known` in
   `src/start.ts` to list it.
 - Then delete `/api/items`, `items.functions.ts`, `items.server.ts`,
-  `items.server.test.ts` and `itemKeys`, so no dead example is left. Drop
-  the `items` table from `schema.server.ts` and run `bun run db:generate`;
-  under the additive rule (Database), push that migration after the new
-  version runs, or with it while the app has no users yet.
+  `items.server.test.ts` and `itemKeys`, so no dead example is left.
+- Migrations, in two steps. First add the new table to `schema.server.ts`
+  and run `bun run db:generate`: that writes its `CREATE TABLE` migration.
+  Only then drop the `items` table and run `bun run db:generate` again for
+  the `DROP TABLE` migration. With an add and a drop in one generate,
+  drizzle-kit asks whether the new table renames the old one; with no
+  terminal (an agent's shell) that prompt crashes, and drizzle-kit has no
+  flag to answer it. Under the additive rule (Database), push the drop after
+  the new version runs, or with it while the app has no users yet.
+
+**Shared data.** The example is per person: `listItems` filters on
+`ownerSub`, and `addItem` publishes to the writer's own topic. For a list
+every member sees (a family's shopping list), leave the owner filter out and
+publish to `null`, which reaches every open stream (see Realtime). Published
+to `user.sub`, other members' tabs never see the write while realtime is
+on, because lists then do not poll.
 
 Run the full line in "Test locally first" before the push.
 
@@ -230,7 +249,14 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   `env.server.ts`), and realtime only when that is at least 2. More replicas
   or a CronJob multiply this, so ask before adding either.
 - Migrations are additive: expand in one release, contract in a later one, so
-  the previous image stays a working rollback. `bun run db:generate` writes
+  the previous image stays a working rollback.
+- The same rule covers server functions. A tab opened before a deploy keeps
+  running the old client: it calls the old server function by its name and
+  input, and reads the return shape it was built for, until it reloads. A
+  renamed or removed function logs `Server function info not found` on the
+  server, and a changed return shape breaks the old page (for example
+  `data.map is not a function`). Add the new function or field first, and
+  remove the old one in a later release. `bun run db:generate` writes
   them to `drizzle/`; the init container applies them under
   `pg_advisory_lock`.
 - The identity tables come from `@viktorbarzin/auth/schema`. A change there is
@@ -247,10 +273,15 @@ await db.transaction(async (tx) => {
 });
 ```
 
-The NOTIFY fires at COMMIT, so a rolled-back write tells no one. The client
-hook (`useRealtimeInvalidation`) invalidates those keys in every other tab of
-that user, and refetches every active query after a reconnect or `resync`.
-Payloads name keys, never data, and stay under 7,900 bytes.
+The NOTIFY fires at COMMIT, so a rolled-back write tells no one. Each tab's
+stream (`/api/events`) subscribes to its user's topic, `user.sub`. The
+second argument picks who hears the event: `ownerSub` reaches every tab of
+that user, and `null` reaches every open stream. Use `null` for shared data
+that every member sees; a write published to the writer's topic never
+reaches the other members' tabs. The client hook (`useRealtimeInvalidation`)
+invalidates those keys in every tab but the one that wrote, and refetches
+every active query after a reconnect or `resync`. Payloads name keys, never
+data, and stay under 7,900 bytes.
 
 ## Commands
 

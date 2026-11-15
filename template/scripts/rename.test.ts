@@ -83,6 +83,23 @@ describe("rename", () => {
 		expect(await read(dir, "README.md")).toStartWith("# My App");
 	});
 
+	test("the renamed README opens with the Cloud paragraph and no infra steps (round 9)", async () => {
+		// A Cloud App keeps this README; Vault and Terraform steps on its first
+		// screen read as work Cloud already did. They live in docs/new-app.md.
+		const dir = await copyTemplate();
+		await rename(dir, "my-app", "My App");
+		const readme = await read(dir, "README.md");
+		const firstScreen = readme.split("\n").slice(0, 30).join("\n");
+		expect(firstScreen).toContain("## On Cloud");
+		expect(firstScreen).toContain("no infra steps");
+		expect(firstScreen).not.toMatch(/Vault|Terraform/);
+		expect(readme).toContain("[docs/new-app.md](docs/new-app.md)");
+		const guide = await read(dir, "docs/new-app.md");
+		expect(guide).toContain("vault kv put secret/my-app");
+		expect(guide).toContain("modules/kubernetes/tanstack_app");
+		expect(guide).toContain("renovate-bot");
+	});
+
 	test("is one-shot: the script, its test and the npm script are gone afterwards", async () => {
 		const dir = await copyTemplate();
 		await rename(dir, "my-app", "My App");
@@ -120,7 +137,7 @@ describe("rename", () => {
 	test("a dashed slug gets underscores where Postgres needs an identifier", async () => {
 		const dir = await copyTemplate();
 		await rename(dir, "my-app", "My App");
-		for (const doc of ["README.md", "docs/new-app.md"]) {
+		for (const doc of ["docs/new-app.md"]) {
 			const text = await read(dir, doc);
 			expect(text).toContain("`my_app = {}`");
 			expect(text).toMatch(/username\s*=\s*"my_app"/);

@@ -1,11 +1,19 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import {
+	mkdtemp,
+	readdir,
+	readFile,
+	readlink,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
 	copyTemplate,
+	exportTemplate,
 	parseExportArgs,
 	rewriteManifest,
 } from "./export-template.js";
@@ -82,13 +90,18 @@ describe("parseExportArgs", () => {
 			target: null,
 			push: false,
 			install: true,
+			keep: false,
 		});
 	});
 
 	test("--no-install skips bun install, for an export before the packages are on npm", () => {
 		expect(
 			parseExportArgs(["--target", "/tmp/x", "--push", "--no-install"]),
-		).toEqual({ target: "/tmp/x", push: true, install: false });
+		).toEqual({ target: "/tmp/x", push: true, install: false, keep: false });
+	});
+
+	test("--keep keeps the temporary clone after a push", () => {
+		expect(parseExportArgs(["--push", "--keep"]).keep).toBe(true);
 	});
 
 	test("--target needs a directory", () => {
@@ -98,4 +111,139 @@ describe("parseExportArgs", () => {
 	test("an unknown flag is an error", () => {
 		expect(() => parseExportArgs(["--frobnicate"])).toThrow("--frobnicate");
 	});
+});
+
+/** Runs git without the user's or the system's config. */
+function git(args: string[], cwd: string): string {
+	const proc = Bun.spawnSync(["git", ...args], { cwd, env: GIT_ENV });
+	if (proc.exitCode !== 0)
+		throw new Error(`git ${args.join(" ")}: ${proc.stderr.toString()}`);
+	return proc.stdout.toString();
+}
+
+const GIT_ENV = {
+	PATH: process.env.PATH ?? "/usr/bin:/bin",
+	GIT_CONFIG_NOSYSTEM: "1",
+	GIT_CONFIG_GLOBAL: "/dev/null",
+	GIT_AUTHOR_NAME: "Export Test",
+	GIT_AUTHOR_EMAIL: "export@app.example",
+	GIT_COMMITTER_NAME: "Export Test",
+	GIT_COMMITTER_EMAIL: "export@app.example",
+};
+
+/** A bare repo standing in for viktor/app-template, with one commit on master. */
+async function bareRemote(): Promise<string> {
+	const base = await mkdtemp(join(tmpdir(), "export-remote-"));
+	dirs.push(base);
+	const seed = join(base, "seed");
+	const bare = join(base, "app-template.git");
+	git(["init", "--quiet", "--initial-branch=master", seed], base);
+	await writeFile(join(seed, "README.md"), "# old export\n");
+	git(["add", "README.md"], seed);
+	git(["commit", "--quiet", "-m", "old export"], seed);
+	git(["clone", "--quiet", "--bare", seed, bare], base);
+	return bare;
+}
+
+describe("exportTemplate without --target (round 9)", () => {
+	const saved: Record<string, string | undefined> = {};
+	beforeAll(() => {
+		for (const [key, value] of Object.entries(GIT_ENV))
+			if (key !== "PATH") {
+				saved[key] = process.env[key];
+				process.env[key] = value;
+			}
+	});
+	afterAll(() => {
+		for (const [key, value] of Object.entries(saved))
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+	});
+
+	/** A directory of its own for the temporary clones, to see what is left. */
+	async function tmpRoot(): Promise<string> {
+		const dir = await mkdtemp(join(tmpdir(), "export-tmp-"));
+		dirs.push(dir);
+		return dir;
+	}
+
+	test("pushes the export and removes the temporary clone it made", async () => {
+		const remote = await bareRemote();
+		const root = await tmpRoot();
+		const lines: string[] = [];
+		const result = await exportTemplate(
+			{ target: null, push: true, install: false, keep: false },
+			{ remote, tmpRoot: root, log: (line) => lines.push(line) },
+		);
+		expect(result.kept).toBe(false);
+		expect(result.target.startsWith(join(root, "app-template-"))).toBe(true);
+		expect(await readdir(root)).toEqual([]);
+		expect(git(["log", "--format=%s", "master"], remote)).toStartWith(
+			"Export template from app-kit ",
+		);
+		expect(git(["show", "master:package.json"], remote)).not.toContain(
+			"workspace:",
+		);
+		expect(lines.join("\n")).toContain("removed the temporary clone");
+	}, 60_000);
+
+	test("removes the temporary clone when the push fails", async () => {
+		const remote = await bareRemote();
+		await writeFile(
+			join(remote, "hooks", "pre-receive"),
+			"#!/bin/sh\necho refused by the test >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+		const root = await tmpRoot();
+		await expect(
+			exportTemplate(
+				{ target: null, push: true, install: false, keep: false },
+				{ remote, tmpRoot: root, log: () => {} },
+			),
+		).rejects.toThrow("git push");
+		expect(await readdir(root)).toEqual([]);
+		expect(git(["log", "--format=%s", "master"], remote).trim()).toBe(
+			"old export",
+		);
+	}, 60_000);
+
+	test("removes the temporary clone when the clone fails", async () => {
+		const root = await tmpRoot();
+		await expect(
+			exportTemplate(
+				{ target: null, push: true, install: false, keep: false },
+				{ remote: join(root, "missing.git"), tmpRoot: root, log: () => {} },
+			),
+		).rejects.toThrow("git clone");
+		expect(await readdir(root)).toEqual([]);
+	}, 60_000);
+
+	test("--keep keeps the pushed clone and says where it is", async () => {
+		const remote = await bareRemote();
+		const root = await tmpRoot();
+		const lines: string[] = [];
+		const result = await exportTemplate(
+			{ target: null, push: true, install: false, keep: true },
+			{ remote, tmpRoot: root, log: (line) => lines.push(line) },
+		);
+		expect(result.kept).toBe(true);
+		expect(existsSync(join(result.target, "package.json"))).toBe(true);
+		expect(lines.join("\n")).toContain(result.target);
+	}, 60_000);
+
+	test("without --push the clone is the output: kept, and named temporary", async () => {
+		const remote = await bareRemote();
+		const root = await tmpRoot();
+		const lines: string[] = [];
+		const result = await exportTemplate(
+			{ target: null, push: false, install: false, keep: false },
+			{ remote, tmpRoot: root, log: (line) => lines.push(line) },
+		);
+		expect(result.kept).toBe(true);
+		expect(existsSync(join(result.target, "package.json"))).toBe(true);
+		const said = lines.join("\n");
+		expect(said).toContain(result.target);
+		expect(said).toContain("temporary");
+		expect(said).toContain(`rm -rf ${result.target}`);
+	}, 60_000);
 });

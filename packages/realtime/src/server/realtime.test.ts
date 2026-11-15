@@ -124,6 +124,32 @@ describe.skipIf(!adminUrl)("createRealtime", () => {
 		await rt.stop();
 	}, 15_000);
 
+	test("a shared write published to null reaches another user's open stream (round 9)", async () => {
+		// A list every member sees: user A's write must invalidate user B's
+		// tab too, so it is published to every stream, not to A's topic.
+		const rt = realtimeOn("rt_events_shared");
+		await rt.start();
+		const userA = subscribe(rt, "user-a");
+		const userB = subscribe(rt, "user-b");
+		await readUntil(userA.reader, (t) => t.includes("connected"));
+		await readUntil(userB.reader, (t) => t.includes("connected"));
+		const db = drizzle({ client: pool });
+		await db.transaction(async (tx) => {
+			await rt.publishInTx(tx, null, invalidate("user-a-tab"));
+		});
+		const seenByB = await readUntil(
+			userB.reader,
+			(t) => t.includes('"source":"user-a-tab"'),
+			5_000,
+		);
+		expect(seenByB).toContain(
+			'data: {"type":"invalidate","keys":[["items"]],"source":"user-a-tab"}',
+		);
+		userA.abort();
+		userB.abort();
+		await rt.stop();
+	}, 15_000);
+
 	test("an oversized event is logged and dropped; publish never throws", async () => {
 		const lines: string[] = [];
 		const restore = setLogSink((l) => lines.push(l));

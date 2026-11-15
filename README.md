@@ -81,7 +81,9 @@ scope in `bunfig.toml`:
    sha256; `scripts/workflows.test.ts` checks both, here and in the
    template.
 3. After a publish, `bun scripts/export-template.ts --push` refreshes
-   `viktor/app-template` with the published versions.
+   `viktor/app-template` with the published versions. It clones into a
+   temporary directory and removes it after the push, or after a failure;
+   `--keep` keeps it, and `--target <dir>` uses a clone you own.
 
 To publish by hand, for example when CI is down: build and pack from a clean
 checkout of master (`bun install && bun run build && bun scripts/release.ts --pack-only .packs`),

@@ -1,7 +1,9 @@
 /**
- * The example domain: a per-user list of items. A change is published inside
- * the same transaction (`publishInTx`), so the NOTIFY fires at COMMIT and a
- * rolled-back write tells no one.
+ * The example domain: each person's own list of items, filtered on
+ * `ownerSub` and published to the owner's topic. Data every member shares
+ * drops the filter and publishes to `null` (AGENTS.md, "Shared data"). A
+ * change is published inside the same transaction (`publishInTx`), so the
+ * NOTIFY fires at COMMIT and a rolled-back write tells no one.
  */
 import { desc, eq } from "drizzle-orm";
 

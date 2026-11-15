@@ -151,6 +151,6 @@ if (import.meta.main) {
 		"Removed scripts/rename.ts, its test and the rename script (it runs once).",
 	);
 	console.log(
-		"Next: bun install (refreshes bun.lock), commit, then follow README.md from step 3.",
+		"Next: bun install (refreshes bun.lock), commit, then follow docs/new-app.md from step 3 (off Cloud only; on Cloud there are no infra steps).",
 	);
 }

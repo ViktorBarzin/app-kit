@@ -2,7 +2,7 @@
  * Refresh viktor/app-template (the repository new apps are made from) from
  * template/, after the packages are published:
  *
- *   bun scripts/export-template.ts [--target <dir>] [--push] [--no-install]
+ *   bun scripts/export-template.ts [--target <dir>] [--push] [--no-install] [--keep]
  *
  * - copies template/ (without build output or node_modules) over a clone of
  *   viktor/app-template, deleting files the template no longer has;
@@ -15,7 +15,11 @@
  * - with --push, commits and pushes to Forgejo (FORGEJO_GIT_TOKEN, or the
  *   ssh remote when unset).
  *
- * Without --target it clones into a temporary directory.
+ * Without --target it clones into a temporary directory under the system's
+ * temp dir. With --push it removes that clone afterwards, also when a step
+ * fails, unless --keep: on the devvm /tmp is an 8G tmpfs and one clone with
+ * node_modules took about 600M (round 9). Without --push the clone is the
+ * output, so it stays, and the script says it is temporary.
  */
 import { existsSync } from "node:fs";
 import {
@@ -112,14 +116,22 @@ export interface ExportArgs {
 	target: string | null;
 	push: boolean;
 	install: boolean;
+	/** Keep the temporary clone after a push. */
+	keep: boolean;
 }
 
 export function parseExportArgs(argv: readonly string[]): ExportArgs {
-	const out: ExportArgs = { target: null, push: false, install: true };
+	const out: ExportArgs = {
+		target: null,
+		push: false,
+		install: true,
+		keep: false,
+	};
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === "--push") out.push = true;
 		else if (arg === "--no-install") out.install = false;
+		else if (arg === "--keep") out.keep = true;
 		else if (arg === "--target") {
 			const dir = argv[++i];
 			if (!dir || dir.startsWith("--"))
@@ -140,30 +152,70 @@ function run(cmd: string[], cwd: string): void {
 		throw new Error(`${cmd.slice(0, 2).join(" ")} failed in ${cwd}`);
 }
 
-if (import.meta.main) {
-	const args = parseExportArgs(process.argv.slice(2));
-	const token = process.env.FORGEJO_GIT_TOKEN;
-	const remote = token
-		? `https://viktor:${token}@forgejo.viktorbarzin.me/viktor/app-template.git`
-		: "git@git.viktorbarzin.me:viktor/app-template.git";
-	let target = args.target ? resolve(args.target) : "";
-	if (!target) {
-		target = await mkdtemp(join(tmpdir(), "app-template-"));
-		run(["git", "clone", remote, target], ROOT);
+export interface ExportOptions {
+	/** The git remote of viktor/app-template. */
+	remote: string;
+	/** Where a temporary clone goes; the system's temp dir by default. */
+	tmpRoot?: string;
+	log?: (line: string) => void;
+}
+
+/**
+ * The export: clone (into a temporary directory without --target), copy,
+ * install, and with --push commit and push. Returns where the export is and
+ * whether that directory is still there.
+ */
+export async function exportTemplate(
+	args: ExportArgs,
+	options: ExportOptions,
+): Promise<{ target: string; kept: boolean }> {
+	const log = options.log ?? ((line: string) => console.log(line));
+	if (args.target) {
+		const target = resolve(args.target);
+		await exportInto(target, args);
+		log(`exported to ${target}`);
+		return { target, kept: true };
 	}
+	const target = await mkdtemp(
+		join(options.tmpRoot ?? tmpdir(), "app-template-"),
+	);
+	const keep = args.keep || !args.push;
+	try {
+		run(["git", "clone", "--quiet", options.remote, target], ROOT);
+		await exportInto(target, args);
+	} finally {
+		if (!keep) await rm(target, { recursive: true, force: true });
+	}
+	if (!keep) log(`pushed the export and removed the temporary clone ${target}`);
+	else if (args.push) log(`pushed the export; the clone stays in ${target}`);
+	else
+		log(
+			`exported to ${target}, a temporary directory: delete it when done with rm -rf ${target}`,
+		);
+	return { target, kept: keep };
+}
+
+async function exportInto(target: string, args: ExportArgs): Promise<void> {
 	await copyTemplate(target);
 	if (args.install) run([process.execPath, "install"], target);
-	if (args.push) {
-		if (!existsSync(join(target, ".git")))
-			throw new Error(`${target} is not a git clone`);
-		run(["git", "add", "-A"], target);
-		const sha = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], {
-			cwd: ROOT,
-		})
-			.stdout.toString()
-			.trim();
-		run(["git", "commit", "-m", `Export template from app-kit ${sha}`], target);
-		run(["git", "push", "origin", "HEAD:master"], target);
-	}
-	console.log(`exported to ${target}`);
+	if (!args.push) return;
+	if (!existsSync(join(target, ".git")))
+		throw new Error(`${target} is not a git clone`);
+	run(["git", "add", "-A"], target);
+	const sha = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], {
+		cwd: ROOT,
+	})
+		.stdout.toString()
+		.trim();
+	run(["git", "commit", "-m", `Export template from app-kit ${sha}`], target);
+	run(["git", "push", "origin", "HEAD:master"], target);
+}
+
+if (import.meta.main) {
+	const token = process.env.FORGEJO_GIT_TOKEN;
+	await exportTemplate(parseExportArgs(process.argv.slice(2)), {
+		remote: token
+			? `https://viktor:${token}@forgejo.viktorbarzin.me/viktor/app-template.git`
+			: "git@git.viktorbarzin.me:viktor/app-template.git",
+	});
 }
