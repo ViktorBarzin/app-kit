@@ -87,6 +87,9 @@ export async function copyTemplate(target: string): Promise<void> {
 			await rm(join(target, entry), { recursive: true, force: true });
 	await cp(TEMPLATE, target, {
 		recursive: true,
+		// Without it Node rewrites the relative link CLAUDE.md -> AGENTS.md
+		// to this checkout's absolute path, which no clone has.
+		verbatimSymlinks: true,
 		filter: (src) =>
 			!src
 				.slice(TEMPLATE.length)

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -65,6 +65,14 @@ describe("copyTemplate", () => {
 		expect(biome.root).toBeUndefined();
 		expect(biome.extends).toBeUndefined();
 		expect(biome.linter.enabled).toBe(true);
+	});
+
+	test("keeps CLAUDE.md a relative link to AGENTS.md (round 7)", async () => {
+		const target = await mkdtemp(join(tmpdir(), "export-"));
+		dirs.push(target);
+		await copyTemplate(target);
+		// Not the absolute path of app-kit's own template/AGENTS.md.
+		expect(await readlink(join(target, "CLAUDE.md"))).toBe("AGENTS.md");
 	});
 });
 
