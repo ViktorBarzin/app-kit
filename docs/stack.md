@@ -311,7 +311,13 @@ Forgejo login git holds: an access token with the `write:repository` and
 `write:user` scopes in git's credentials. The repo is private unless you
 pass `--public-repo`, and Cloud builds a private repo only for the Forgejo
 account linked to your sign-in, so `cloud new` checks that first and stops,
-with nothing made, when no account is linked. A failed apply is retried by
+with nothing made, when no account is linked. Cloud reads and builds a
+private repo as its own Forgejo account `cloud-bot`, which sees a private
+repo only as a collaborator: `cloud new` adds it with Read before the first
+push and then waits for Cloud's first check of the branch, which exits 8
+with the reason when Cloud cannot read it. A private repo you make by hand
+needs `cloud-bot` added as a Read collaborator (the repo's Settings,
+Collaborators). A failed apply is retried by
 applying the Project File again, even unchanged, not by deleting the
 Project: a deleted Project's name is never given out again.
 For a private app, `cloud invite <project> <app> <email>` adds a person to

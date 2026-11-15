@@ -64,13 +64,43 @@ are, except where this section says otherwise.
   start a throwaway Postgres (README, "Run locally"), install the test
   browser once with `bunx playwright install chromium-headless-shell`, and
   run
-  `bun run check && bun run typecheck && bun run build && TEST_DATABASE_URL=<admin url> bun run test && TEST_DATABASE_URL=<admin url> bun run test:e2e`.
-  The cloud-mode tests need the build and the database; without them they
-  are skipped. A run with skipped tests is not done.
+  `bun run check && bun run build && bun run typecheck && TEST_DATABASE_URL=<admin url> bun run test && TEST_DATABASE_URL=<admin url> bun run test:e2e`.
+  Build before typecheck: `vite build` writes `src/routeTree.gen.ts`, and
+  `tsc` fails on a new route file until it does. The cloud-mode tests need
+  the build and the database; without them they are skipped. A run with
+  skipped tests is not done.
 
 <!-- cloud:begin -->
 <!-- Cloud replaces this block with this App's facts. -->
 <!-- cloud:end -->
+
+## Replacing the example
+
+The template ships an example, `items`: the home page's list with its "New
+item" field, `src/server/items.functions.ts` and `items.server.ts`, the
+`/api/items` route, the `items` table and `itemKeys` in
+`src/lib/query-keys.ts`. Replace it with the app's own data, but keep the
+tests that check the plumbing passing, pointed at the new code:
+
+- `e2e/auth.spec.ts` (sign-in, access requests), `e2e/realtime.spec.ts`
+  (fan-out to another tab, the resync after a missed event) and
+  `e2e/cloud.spec.ts` (cloud mode) drive the home page through the "New
+  item" label and the `items` and `no-items` test ids. Give the new main
+  page a label and test ids of its own and use them there.
+- `/silent-item` in `e2e/stack.ts` writes a row behind the app's back for
+  the resync test. Make it insert into the new table.
+- `src/server/http.server.test.ts`, `cloud.server.test.ts` and
+  `cloud-realtime.server.test.ts` call `/api/items` to check the 401 and
+  403 paths, CSRF, framing, bearer tokens and the connection pool. Point
+  them at an `/api` route of the new app, and change `known` in
+  `src/start.ts` to list it.
+- Then delete `/api/items`, `items.functions.ts`, `items.server.ts`,
+  `items.server.test.ts` and `itemKeys`, so no dead example is left. Drop
+  the `items` table from `schema.server.ts` and run `bun run db:generate`;
+  under the additive rule (Database), push that migration after the new
+  version runs, or with it while the app has no users yet.
+
+Run the full line in "Test locally first" before the push.
 
 ## Load the TanStack skills before you write Start or Router code
 
@@ -184,6 +214,12 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
 - Use `requireMember` from `auth.server.ts` in server functions: it puts the
   person's `sub` on the request's log lines as `enduser.id`. Extras you pass
   to a logger are snake_case.
+- Access lines (`request`, with the path and status) cover only `/api/*`
+  routes (`observeRequest` in `src/start.ts`). Server functions and page
+  loads log only errors and what the code logs, so `cloud logs` shows no
+  line for them. To see a failing server function there, log it yourself
+  inside the handler after `requireMember`, whose request context tags the
+  line with the person.
 
 ## Database
 
@@ -224,11 +260,13 @@ devvm, `~/.bun/bin/bun` is 1.3.11 and comes first on PATH; run
 whichever `bun` is first on PATH, and the server refuses to start on an older
 one.
 
+After `dev`, in the order CI runs them:
+
 ```sh
 bun run dev            # vite dev under Bun on 127.0.0.1:${PORT:-3000}
-bun run build          # vite build + the migrate entrypoint
 bun run check          # biome
-bun run typecheck
+bun run build          # vite build + the migrate entrypoint; writes src/routeTree.gen.ts
+bun run typecheck      # after the build: tsc needs the route tree a new route adds
 bun run test           # bun test; DB and HTTP tests need TEST_DATABASE_URL and a build
 bun run test:e2e       # Playwright against the built server
 ```
