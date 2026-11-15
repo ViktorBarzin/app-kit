@@ -117,7 +117,9 @@ tests that check the plumbing passing, pointed at the new code:
 every member sees (a family's shopping list), leave the owner filter out and
 publish to `null`, which reaches every open stream (see Realtime). Published
 to `user.sub`, other members' tabs never see the write while realtime is
-on, because lists then do not poll.
+on, because lists then do not poll. "Every member" means everyone who gets
+past sign-in: on a private App, the people on its allow list; on a public
+App, anyone with a homelab account. Keep family-only data in a private App.
 
 Run the full line in "Test locally first" before the push.
 
