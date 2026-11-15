@@ -15,6 +15,7 @@ import {
 	createCloudAuth,
 } from "@viktorbarzin/auth";
 
+import { app } from "#/app.config";
 import {
 	authConfig,
 	cloudAuthConfig,
@@ -62,7 +63,7 @@ describe("DEV_USER", () => {
 		setEnv({ NODE_ENV: undefined, DEV_USER: "alice" });
 		const appAuth = createAppAuth(() => authConfig(noDb));
 		expect(
-			await appAuth.resolveUser(new Request("https://starter.example/x")),
+			await appAuth.resolveUser(new Request("https://app.example/x")),
 		).toBeNull();
 	});
 });
@@ -120,12 +121,12 @@ describe("telemetry", () => {
 			...keyed,
 			TELEMETRY_EVENTS_URL: "http://pipeline.example.invalid",
 			TELEMETRY_SITE_ID: "7",
-			SENTRY_DSN: "https://k@starter.example/_t/x/3",
+			SENTRY_DSN: "https://k@app.example/_t/x/3",
 		});
 		expect(telemetrySettings()).toMatchObject({
 			eventsUrl: "http://pipeline.example.invalid",
 			siteId: "7",
-			dsn: "https://k@starter.example/_t/x/3",
+			dsn: "https://k@app.example/_t/x/3",
 		});
 	});
 });
@@ -161,7 +162,8 @@ describe("serviceInfo", () => {
 		],
 	])("%p gives version %p in %p", (values, version, environment) => {
 		setEnv(values);
-		expect(serviceInfo()).toEqual({ name: "starter", version, environment });
+		// The slug, whatever its length after the rename.
+		expect(serviceInfo()).toEqual({ name: app.slug, version, environment });
 	});
 });
 
@@ -171,7 +173,7 @@ describe("cloud mode", () => {
 		CLOUD_EDGE_SECRET: SECRET,
 		CLOUD_EDGE_SECRET_FILE: undefined,
 		CLOUD_OWNER_EMAIL: "owner@example.com",
-		CLOUD_PUBLIC_URL: "https://starter.example",
+		CLOUD_PUBLIC_URL: "https://app.example",
 		CLOUD_DATABASE_CONNECTION_LIMIT: undefined,
 	};
 
@@ -187,13 +189,13 @@ describe("cloud mode", () => {
 		expect(cloudSettings()).toEqual({
 			edgeSecret: SECRET,
 			ownerEmail: "owner@example.com",
-			publicUrl: "https://starter.example",
+			publicUrl: "https://app.example",
 		});
 		expect(cloudAuthConfig()).toMatchObject({
-			appSlug: "starter",
+			appSlug: app.slug,
 			edgeSecret: SECRET,
 			ownerEmail: "owner@example.com",
-			publicUrl: "https://starter.example",
+			publicUrl: "https://app.example",
 		});
 	});
 
@@ -228,9 +230,9 @@ describe("cloud mode", () => {
 			"x-cloud-user-id": "o1",
 			"x-cloud-user-email": "Owner@example.com",
 		};
-		const forged = new Request("https://starter.example/", { headers });
+		const forged = new Request("https://app.example/", { headers });
 		expect(await appAuth.resolveUser(forged)).toBeNull();
-		const real = new Request("https://starter.example/", {
+		const real = new Request("https://app.example/", {
 			headers: { ...headers, "x-cloud-edge-secret": SECRET },
 		});
 		expect(await appAuth.resolveUser(real)).toMatchObject({

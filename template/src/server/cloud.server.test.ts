@@ -20,7 +20,7 @@ const adminUrl = process.env.TEST_DATABASE_URL;
 const ready = Boolean(adminUrl) && existsSync(ENTRY);
 
 const SECRET = "cloud-edge-secret-0123456789abcdefghijklmnop";
-const PUBLIC_URL = "https://starter.example";
+const PUBLIC_URL = "https://app.example";
 
 let database: Awaited<ReturnType<typeof migratedTestDatabase>>;
 let server: BuiltServer;

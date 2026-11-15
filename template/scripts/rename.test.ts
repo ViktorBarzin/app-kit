@@ -3,7 +3,7 @@
  * token is rewritten, outside a short allow-list.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { cp, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { migrationLockKey } from "@viktorbarzin/pg";
@@ -161,6 +161,29 @@ describe("rename", () => {
 	])("refuses the slug %p", async (slug) => {
 		const dir = await copyTemplate();
 		await expect(rename(dir, slug, "Name")).rejects.toThrow("slug");
+	});
+
+	test("a 50-character slug leaves a tree that passes biome check (round 7)", async () => {
+		const dir = await copyTemplate();
+		// As export-template.ts writes it: the repo root's config, standalone.
+		const root = JSON.parse(
+			await readFile(resolve(TEMPLATE, "../biome.json"), "utf8"),
+		);
+		await writeFile(
+			join(dir, "biome.json"),
+			`${JSON.stringify({ ...root, vcs: { enabled: false } }, null, "\t")}\n`,
+		);
+		const slug = `a${"b".repeat(48)}c`;
+		expect(slug).toHaveLength(50);
+		await rename(dir, slug, "Long Name");
+		const biome = Bun.spawnSync(
+			[resolve(TEMPLATE, "node_modules/.bin/biome"), "check", "."],
+			{ cwd: dir, stdout: "pipe", stderr: "pipe" },
+		);
+		expect(
+			`${biome.stdout.toString()}${biome.stderr.toString()}`.slice(-4000),
+		).not.toContain("×");
+		expect(biome.exitCode).toBe(0);
 	});
 
 	test("refuses an empty display name and a second run", async () => {

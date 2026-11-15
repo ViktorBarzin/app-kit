@@ -159,4 +159,6 @@ DEV_USER=me PORT=3100 bun run dev         # http://127.0.0.1:3100, signed in as 
 `DEV_USER` stands in for sign-in only while `NODE_ENV` is `development` or
 `test` and no OIDC client is configured; `bun run dev` sets
 `NODE_ENV=development`. Tests: `TEST_DATABASE_URL=<admin url> bun run test`
-(each test makes and drops its own database), then `bun run test:e2e`.
+(each test makes and drops its own database), then `bun run test:e2e`. The
+end-to-end tests need Playwright's browser, which a fresh home directory
+lacks; install it once with `bunx playwright install chromium-headless-shell`.

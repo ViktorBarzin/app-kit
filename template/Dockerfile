@@ -16,8 +16,9 @@ RUN bun run build
 # --- runtime: distroless Bun, non-root, only the build output
 FROM oven/bun:1.4.3-distroless
 WORKDIR /app
-# SERVICE_VERSION: the commit the image is built from (build.yml passes it);
-# logs carry it as service.version and telemetry as the release.
+# SERVICE_VERSION: the commit the image is built from (build.yml passes it;
+# on Cloud, Cloud sets it on the pod to the Deploy's commit); logs carry it
+# as service.version and telemetry as the release.
 ARG SERVICE_VERSION=dev
 # METRICS_PORT: /metrics on its own port, never routed by the ingress.
 # NO_COLOR: srvx's shutdown lines without ANSI codes.

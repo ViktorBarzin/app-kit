@@ -13,8 +13,9 @@ TanStack Start on Bun, Drizzle on the shared CNPG Postgres, Authentik
 accounts through app-side OIDC, realtime over Postgres LISTEN/NOTIFY and SSE.
 The shared plumbing lives in the `@viktorbarzin/*` packages (table below);
 this repo holds only what is specific to the app. Every push to `master`
-builds and deploys (`.github/workflows/build.yml`, `.woodpecker/deploy.yml`),
-so land only verified work there.
+builds and deploys: on Cloud, Cloud builds and deploys it (see "On Cloud");
+elsewhere, this repo's own CI files under `.github/` and `.woodpecker/` do.
+So land only verified work there.
 
 ## On Cloud
 
@@ -37,8 +38,19 @@ are, except where this section says otherwise.
   table and pass `isAdmin` in `auth.server.ts`:
   `createCloudAuth(() => ({ ...cloudAuthConfig(), isAdmin: (who) => ... }))`.
 - **Public or private.** A public App lets anyone open its pages; signed-out
-  visitors have no user, so decide what they see. A private App lets in only
-  the people on its allow list. Cloud sets this, not the code.
+  visitors have no user, so decide what they see. The home page
+  (`src/routes/index.tsx`) still sends signed-out visitors to sign in, even
+  in a public App: for pages anyone may read, change that route's loader to
+  allow a visitor with no user. A private App lets in only the people on its
+  allow list. Cloud sets this, not the code.
+- **Two 401s.** A 401 with `sign_in_required` comes from Cloud's edge (a
+  private App and no sign-in); a 401 with `unauthorized` comes from this
+  app's own code (`requireMember` with no user).
+- **Invites.** The owner lets someone into a private App with `cloud invite
+  <project> <app> <email>`. Each run makes a new single-use code for 7 days;
+  older codes stay valid until used or expired, since Cloud cannot revoke
+  them. A redeemed old code only makes a Cloud App Guests account, which
+  opens no App unless its email is on that App's allow list.
 - **No access requests and no bearer tokens.** `/pending` and
   `/admin/requests` redirect. `/api` routes work from the signed-in browser
   only.
@@ -49,7 +61,9 @@ are, except where this section says otherwise.
   pool, plus one LISTEN connection when realtime is on. On a nano database realtime is off and lists refetch every `app.pollMs`;
   invalidate the query after a write, as `routes/index.tsx` does.
 - **Test locally first.** Each push costs build minutes. Before you push,
-  start a throwaway Postgres (README, "Run locally") and run
+  start a throwaway Postgres (README, "Run locally"), install the test
+  browser once with `bunx playwright install chromium-headless-shell`, and
+  run
   `bun run check && bun run typecheck && bun run build && TEST_DATABASE_URL=<admin url> bun run test && TEST_DATABASE_URL=<admin url> bun run test:e2e`.
   The cloud-mode tests need the build and the database; without them they
   are skipped. A run with skipped tests is not done.
@@ -150,7 +164,7 @@ stays off in local runs and tests, which have no key.
 | `SENTRY_DSN` | the GlitchTip DSN, `https://<key>@<app host>/_t/x/<project>` | unset: no error reports |
 | `TELEMETRY_SITE_ID` | the Rybbit site | `app.telemetry.siteId` (1) |
 | `TELEMETRY_EVENTS_URL` | the event pipeline, for server-side events | `http://event-pipeline.rybbit.svc.cluster.local` |
-| `SERVICE_VERSION` | the release, set in the image by `build.yml` | `dev` |
+| `SERVICE_VERSION` | the release: on Cloud, the running Deploy's commit; elsewhere, set in the image by this repo's CI build | `dev` |
 | `DEPLOYMENT_ENVIRONMENT` | `deployment.environment.name` | `production` when `NODE_ENV=production`, else `dev` |
 | `TELEMETRY` | `off` to opt out at run time | on |
 

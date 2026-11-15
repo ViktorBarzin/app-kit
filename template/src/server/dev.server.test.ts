@@ -6,13 +6,30 @@
 import { afterAll, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
+import { statusWhenServed } from "#/test/served";
+
 const TEMPLATE = resolve(import.meta.dir, "../..");
 let dev: Bun.Subprocess | null = null;
 
+/** Signal the whole group: `bun run` does not pass SIGTERM on to vite. */
+function signal(child: Bun.Subprocess, name: NodeJS.Signals): void {
+	try {
+		process.kill(-child.pid, name);
+	} catch {
+		// Already gone.
+	}
+}
+
 afterAll(async () => {
-	dev?.kill("SIGTERM");
-	await dev?.exited;
-});
+	if (!dev) return;
+	signal(dev, "SIGTERM");
+	const stopped = await Promise.race([
+		dev.exited.then(() => true),
+		Bun.sleep(5000).then(() => false),
+	]);
+	if (!stopped) signal(dev, "SIGKILL");
+	await dev.exited;
+}, 20_000);
 
 function freePort(): number {
 	const probe = Bun.serve({ port: 0, fetch: () => new Response() });
@@ -34,13 +51,12 @@ test("bun run dev serves /healthz", async () => {
 		},
 		stdout: "ignore",
 		stderr: "ignore",
+		// Its own process group, so afterAll stops vite too.
+		detached: true,
 	});
-	let status = 0;
-	for (let i = 0; i < 120 && status === 0; i++) {
-		status = await fetch(`http://127.0.0.1:${port}/healthz`)
-			.then((r) => r.status)
-			.catch(() => 0);
-		if (status === 0) await Bun.sleep(500);
-	}
+	// Vite answers 503 while it warms up on a loaded box: wait through it.
+	const status = await statusWhenServed(`http://127.0.0.1:${port}/healthz`, {
+		budgetMs: 60_000,
+	});
 	expect(status).toBe(200);
 }, 90_000);

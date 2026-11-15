@@ -303,9 +303,17 @@ Start an app there with the `cloud` CLI, which the devvm has for every user.
 `cloud login` signs in once with a device code. Then `cloud new <app>
 --access private|public --yes` copies `viktor/app-template` into your own
 Forgejo account, creates a Project with the app and its own nano Postgres,
-pushes the first commit and applies it; each later push to `master` builds
-and deploys. `cloud new` uses the Forgejo login git holds: an access token
-with the `write:repository` and `write:user` scopes in git's credentials.
+pushes the first commit, applies it and waits until the apply ends (a
+failed apply exits 7 with its reason; `--no-wait` returns at once). Each
+later push to `master` builds and deploys, and `cloud deploys <project>
+<app>` lists the Deploys and says what holds one up. `cloud new` uses the
+Forgejo login git holds: an access token with the `write:repository` and
+`write:user` scopes in git's credentials. The repo is private unless you
+pass `--public-repo`, and Cloud builds a private repo only for the Forgejo
+account linked to your sign-in, so `cloud new` checks that first and stops,
+with nothing made, when no account is linked. A failed apply is retried by
+applying the Project File again, even unchanged, not by deleting the
+Project: a deleted Project's name is never given out again.
 For a private app, `cloud invite <project> <app> <email>` adds a person to
 its allow list and prints a one-time sign-up code for someone with no
 homelab account. `cloud --help` lists the other commands.

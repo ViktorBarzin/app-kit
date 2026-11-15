@@ -92,6 +92,13 @@ describe.skipIf(!ready)("the built server", () => {
 		expect(await res.json()).toEqual({ status: "ok" });
 	});
 
+	test("/favicon.ico answers with an icon, signed in or not (round 7)", async () => {
+		const res = await get("/favicon.ico", null);
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type") ?? "").toContain("icon");
+		expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(0);
+	});
+
 	test("/metrics is served on METRICS_PORT only", async () => {
 		await get("/healthz", null);
 		const metrics = await fetch(`${server.metricsOrigin}/metrics`);

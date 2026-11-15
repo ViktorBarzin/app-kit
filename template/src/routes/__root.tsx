@@ -23,7 +23,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 			{ name: "viewport", content: "width=device-width, initial-scale=1" },
 			{ title: app.displayName },
 		],
-		links: [{ rel: "stylesheet", href: appCss }],
+		links: [
+			{ rel: "stylesheet", href: appCss },
+			{ rel: "icon", href: "/favicon.ico" },
+		],
 	}),
 	// Telemetry settings, once per document load (sign-in reloads the page).
 	loader: () => getTelemetrySettings(),
