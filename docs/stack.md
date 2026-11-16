@@ -140,12 +140,15 @@ flowchart LR
   `["entrypoints/migrate.js"]`, the app's image and env, and one database
   connection. A failure fails the Deploy and the version before keeps
   serving; `cloud deploys log <project> <app> <id>` ends with their output.
+  On the infra path they run as the Deployment's init container instead
+  (see Database).
 - **Shutdown delay.** A stopping instance keeps serving for 5 s, plus the
   App's `shutdownDelaySeconds` in the Project File (0 to 300, default 0),
   before it gets `SIGTERM`. Set it to the slowest request the app serves,
   so a Deploy cuts none off. Cloud waits by running `sleep` in the image;
-  the template's distroless image carries a static one
-  (`/usr/local/bin/sleep`), and an image without one gets `SIGTERM` at once.
+  the template's distroless image carries static busybox, pinned by digest,
+  as `/usr/local/bin/busybox` with `sleep` and `sh` linked to it, and an
+  image without `sleep` gets `SIGTERM` at once.
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz`, which
   the template's `/healthz` answers with a static ok. A Deploy goes live
   only once that path answers 2xx, so a version that cannot serve fails

@@ -40,9 +40,12 @@ COPY --from=build /src/drizzle/ ./drizzle/
 # The distroless image has no shell and no sleep. On Cloud a stopping
 # instance runs the preStop hook `sleep <5 + shutdownDelaySeconds>` so
 # requests in flight finish before SIGTERM; without a sleep binary the hook
-# fails and SIGTERM comes at once. Static busybox answers as `sleep` by its
-# file name.
-COPY --from=docker.io/library/busybox:1.37.0-musl /bin/busybox /usr/local/bin/sleep
+# fails and SIGTERM comes at once. `cloud run <p> <app> -- sh -c '...'`
+# needs a shell. Static busybox (pinned by digest) answers as the applet its
+# link is named after.
+COPY --from=docker.io/library/busybox:1.37.0-musl@sha256:f6a95d611e0a8780fabdb2aec43e31275b2720dfefa3e41b16835bfc42454478 /bin/busybox /usr/local/bin/busybox
+RUN ["/usr/local/bin/busybox", "ln", "-s", "busybox", "/usr/local/bin/sleep"]
+RUN ["/usr/local/bin/busybox", "ln", "-s", "busybox", "/usr/local/bin/sh"]
 USER 10001:10001
 EXPOSE 3000 9090
 CMD ["run", "server/index.mjs"]
