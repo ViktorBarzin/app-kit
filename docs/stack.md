@@ -396,6 +396,20 @@ flowchart LR
   (`cloud file export`, edit, `cloud apply`). `cloud events <project>
   <app>` lists crashes (with the exit code, or `OOMKilled`), failed checks
   and recoveries; `cloud projects` names an app that is crashing now.
+- **Env at build time.** Plain env reaches the build; secrets never do.
+  Cloud's builder passes the App's plain `env` as one build argument,
+  `CLOUD_BUILD_ENV` (base64 of `export NAME='value'` lines), and as
+  `--build-arg NAME=value` for each name. The template's Dockerfile runs
+  `eval` on it before `bun run build`, so `vite build` inlines
+  `import.meta.env.VITE_*` into the page's JS, where anyone can read it. A
+  repo with no Dockerfile gets the same names in its Railpack build. App
+  secrets, generated ones (`{generate: true}`) too, reach only the running
+  pod.
+- **Build logs.** `cloud deploys <project> <app>` shows a failed Deploy's
+  reason and the last 20 lines of its build, and `cloud deploys log
+  <project> <app> <deploy-id>` prints the full build output. The builder
+  repo is public, so its run log shows step names only; the output is
+  sealed to Cloud's key.
 - **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
 - **Network.** The app reaches the internet over IPv4 only, from one
   address every App shares (`cloud help apps` prints it). It cannot send

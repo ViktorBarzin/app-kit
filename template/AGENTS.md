@@ -69,6 +69,17 @@ are, except where this section says otherwise.
 - **No access requests and no bearer tokens.** `/pending` and
   `/admin/requests` redirect. `/api` routes work from the signed-in browser
   only.
+- **Env at build time.** Plain env reaches the build; secrets never do.
+  The App's `env` in the Project File is set on the pod and passed to the
+  build, so `vite build` inlines `import.meta.env.VITE_*` values into the
+  page's JS (for example `env: {VITE_GREETING: hi}`). Anyone who opens the
+  page can read those, so never put a secret in a `VITE_*` name. Secrets
+  (`cloud secrets`) reach the running App only. The `Dockerfile` reads the
+  build env from `CLOUD_BUILD_ENV`; keep that line. A Dockerfile of your
+  own gets each plain value where it declares `ARG NAME`.
+- **Build logs.** `cloud deploys <project> <app>` shows why a Deploy
+  failed and the last 20 lines of its build; `cloud deploys log <project>
+  <app> <deploy-id>` prints the whole build.
 - **Migrations.** `bun run db:generate` writes them to `drizzle/`; commit
   them. Before each deploy Cloud runs `entrypoints/migrate.js` from the image,
   which applies them. Keep them additive (see Database).

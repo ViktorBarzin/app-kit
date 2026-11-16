@@ -11,7 +11,12 @@ WORKDIR /src
 COPY package.json bun.lock bunfig.toml ./
 RUN bun install --frozen-lockfile
 COPY . .
-RUN bun run build
+# Plain env reaches the build; secrets never do. On Cloud the builder passes
+# the App's plain `env` from the Project File as CLOUD_BUILD_ENV, base64 of
+# `export NAME='value'` lines, so `vite build` sees VITE_* names and inlines
+# them into the page's JS. Empty outside Cloud.
+ARG CLOUD_BUILD_ENV=
+RUN eval "$(printf '%s' "$CLOUD_BUILD_ENV" | base64 -d)" && bun run build
 
 # --- runtime: distroless Bun, non-root, only the build output
 FROM oven/bun:1.4.3-distroless
