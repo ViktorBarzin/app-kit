@@ -41,6 +41,15 @@ async function writeItem(title: string): Promise<ItemRow> {
 	return rowView(row);
 }
 
+async function deleteItem(id: string): Promise<boolean> {
+	const rows = await pool
+		.getDb()
+		.delete(items)
+		.where(eq(items.id, id))
+		.returning({ id: items.id });
+	return rows.length === 1;
+}
+
 async function readItem(id: string): Promise<ItemRow | null> {
 	const [row] = await pool.getDb().select().from(items).where(eq(items.id, id));
 	return row ? rowView(row) : null;
@@ -102,6 +111,8 @@ const deps: FixtureDeps = {
 	},
 	writeItem: databaseConfigured() ? writeItem : null,
 	readItem: databaseConfigured() ? readItem : null,
+	deleteItem: databaseConfigured() ? deleteItem : null,
+	log: (line) => console.log(line),
 	connect,
 	fetch: (url, init) => fetch(url, init),
 	allocate,

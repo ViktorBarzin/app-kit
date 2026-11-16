@@ -2,9 +2,10 @@
  * What the fixture's network routes may reach. The fixture runs on public
  * URLs from the home address, so /tcp and /fetch must not be a port scanner
  * or an open proxy: /tcp reaches two named hosts on fixed ports, and /fetch
- * reaches only the App's own Service URLs, origins its owner lists in
- * FIXTURE_FETCH_ALLOW, or https hosts under viktorbarzin.me, and answers
- * only the status, never the body.
+ * reaches only the App's own Service URLs and the origins its owner lists
+ * in FIXTURE_FETCH_ALLOW, and answers only the status, never the body.
+ * Errors name only the kind of failure. /info hashes only the values the
+ * parity suite sets and the cells read (hashedName).
  */
 
 /**
@@ -19,9 +20,6 @@ export const TCP_TARGETS: ReadonlyMap<string, ReadonlySet<number>> = new Map([
 
 /** The longest /slow may wait, in seconds. */
 export const SLOW_MAX_S = 600;
-
-/** The https host suffix /fetch accepts besides the App's own origins. */
-const PUBLIC_SUFFIX = ".viktorbarzin.me";
 
 export type Allowed<T> = ({ ok: true } & T) | { ok: false; reason: string };
 
@@ -95,15 +93,44 @@ export function fetchAllowed(
 	if (url.username || url.password)
 		return { ok: false, reason: "url may not carry credentials" };
 	if (own.has(url.origin)) return { ok: true, url };
-	if (url.protocol === "https:" && url.hostname.endsWith(PUBLIC_SUFFIX))
-		return { ok: true, url };
 	return {
 		ok: false,
-		reason: `url must be on one of the App's own URLs or an https host under ${PUBLIC_SUFFIX.slice(1)}`,
+		reason:
+			"url must be on one of the App's own URLs or an origin in FIXTURE_FETCH_ALLOW",
 	};
 }
 
 export function slowSeconds(value: string | null): number | null {
 	if (value === null || !/^\d+$/.test(value)) return null;
 	return Math.min(Number(value), SLOW_MAX_S);
+}
+
+/** Built-in variables the acceptance cells compare by hash. */
+const CELL_NAMES = new Set([
+	"SERVICE_VERSION",
+	"CLOUD_INSTANCE_ID",
+	"CLOUD_PUBLIC_URL",
+]);
+
+/** Names the parity suite sets itself, as its cells write them. */
+const SUITE_NAMES = new Set([
+	"TOKEN",
+	"SESSION_SECRET",
+	"FOO",
+	"VITE_GREETING",
+	"VITE_KEY",
+]);
+
+/** The suite's own prefixes: FIXTURE_ and a checklist ID, e.g. P27_. */
+const SUITE_PREFIX = /^(FIXTURE_|[PS]\d{2}_)/;
+
+/**
+ * Whether /info shows the SHA-256 of this variable's value. Platform
+ * credentials and system variables show only their name, so a low-entropy
+ * value cannot be guessed from its hash on a public URL.
+ */
+export function hashedName(name: string): boolean {
+	return (
+		CELL_NAMES.has(name) || SUITE_NAMES.has(name) || SUITE_PREFIX.test(name)
+	);
 }

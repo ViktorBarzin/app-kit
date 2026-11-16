@@ -43,7 +43,7 @@ beforeAll(async () => {
 afterAll(async () => {
 	await server?.stop();
 	await database?.drop();
-});
+}, 30_000);
 
 describe.skipIf(!built)("the fixture on the built server", () => {
 	test("/info is the fixture's, not a Start page, and carries no value", async () => {
@@ -53,8 +53,10 @@ describe.skipIf(!built)("the fixture on the built server", () => {
 		expect(text).not.toContain("s3cret");
 		const body = JSON.parse(text) as {
 			serviceVersion: string;
-			env: Record<string, string>;
+			env: Record<string, string | null>;
 		};
+		// A platform variable shows its name only.
+		expect(body.env.PORT).toBeNull();
 		expect(body.serviceVersion).toBe("v-test");
 		expect(body.env.FIXTURE_SECRET).toBe(
 			new Bun.CryptoHasher("sha256").update("s3cret").digest("hex"),
@@ -91,8 +93,10 @@ describe.skipIf(!built)("the fixture on the built server", () => {
 		const body = (await response.json()) as {
 			wrote: { id: string };
 			read: { id: string };
+			deleted: boolean;
 		};
 		expect(body.read.id).toBe(body.wrote.id);
+		expect(body.deleted).toBe(true);
 	});
 
 	// Last: it ends the server.

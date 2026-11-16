@@ -5,7 +5,13 @@
  */
 import { createHash } from "node:crypto";
 
-import { fetchAllowed, ownOrigins, slowSeconds, tcpAllowed } from "./guard";
+import {
+	fetchAllowed,
+	hashedName,
+	ownOrigins,
+	slowSeconds,
+	tcpAllowed,
+} from "./guard";
 
 /** The exit code /crash exits with. */
 export const CRASH_EXIT_CODE = 42;
@@ -18,6 +24,12 @@ export const TCP_TIMEOUT_MS = 9_000;
 
 /** /fetch gives up after this long. */
 export const FETCH_TIMEOUT_MS = 10_000;
+
+/** /sse ends its stream after this long. */
+export const SSE_MAX_MS = 15 * 60_000;
+
+/** The most lines one /log call writes. */
+export const LOG_MAX_LINES = 200;
 
 export const NOT_IN_THIS_BATCH = {
 	error: {
@@ -45,6 +57,11 @@ export interface FixtureDeps {
 	/** Null when the App has no database. */
 	writeItem: ((title: string) => Promise<ItemRow>) | null;
 	readItem: ((id: string) => Promise<ItemRow | null>) | null;
+	deleteItem: ((id: string) => Promise<boolean>) | null;
+	/** Writes one line to the App's log. */
+	log: (line: string) => void;
+	/** How long /sse streams; SSE_MAX_MS unless a test sets it. */
+	sseLimitMs?: number;
 	connect: (
 		host: string,
 		port: number,
@@ -91,11 +108,18 @@ const json = (body: unknown, status = 200) =>
 const fail = (status: number, code: string, message: string) =>
 	json({ error: { code, message } }, status);
 
+/**
+ * Every env name; the SHA-256 of a value only for the names hashedName
+ * allows (null for the rest), and the names whose value is empty.
+ */
 function info(deps: FixtureDeps): Response {
-	const env: Record<string, string> = {};
+	const env: Record<string, string | null> = {};
+	const empty: string[] = [];
 	for (const name of Object.keys(deps.env).sort()) {
 		const value = deps.env[name];
-		if (value !== undefined) env[name] = sha256(value);
+		if (value === undefined) continue;
+		env[name] = hashedName(name) ? sha256(value) : null;
+		if (value === "") empty.push(name);
 	}
 	return json({
 		bootTime: deps.bootTime.toISOString(),
@@ -103,11 +127,27 @@ function info(deps: FixtureDeps): Response {
 		instanceId: deps.env.CLOUD_INSTANCE_ID ?? null,
 		pid: process.pid,
 		env,
+		empty,
 	});
 }
 
+/** The kind of a network failure, with no address or host in it. */
+export function genericError(message: string): string {
+	if (/timed? ?out|timeout|no connection within|abort/i.test(message))
+		return "timeout";
+	if (/ECONNREFUSED|refused/i.test(message)) return "refused";
+	if (/ENOTFOUND|EAI_AGAIN|getaddrinfo|DNS/i.test(message)) return "dns";
+	if (/EHOSTUNREACH|ENETUNREACH|unreachable/i.test(message))
+		return "unreachable";
+	if (/ECONNRESET|reset/i.test(message)) return "reset";
+	return "error";
+}
+
+const messageOf = (err: unknown) =>
+	err instanceof Error ? `${err.name} ${err.message}` : String(err);
+
 async function items(deps: FixtureDeps): Promise<Response> {
-	if (!deps.writeItem || !deps.readItem)
+	if (!deps.writeItem || !deps.readItem || !deps.deleteItem)
 		return fail(503, "no_database", "the App has no DATABASE_URL");
 	const wrote = await deps.writeItem(`fixture ${new Date().toISOString()}`);
 	const read = await deps.readItem(wrote.id);
@@ -117,7 +157,23 @@ async function items(deps: FixtureDeps): Promise<Response> {
 			"not_read_back",
 			`row ${wrote.id} was not found after the write`,
 		);
-	return json({ wrote, read });
+	// The row goes again, so repeated calls leave the table as it was.
+	const deleted = await deps.deleteItem(wrote.id);
+	return json({ wrote, read, deleted });
+}
+
+function log(deps: FixtureDeps, url: URL): Response {
+	const n = slowSeconds(url.searchParams.get("n"));
+	const tag = url.searchParams.get("tag") ?? "";
+	if (n === null || !/^[a-z0-9-]{1,40}$/.test(tag))
+		return fail(
+			400,
+			"bad_log_request",
+			"n must be a whole number and tag 1-40 of a-z, 0-9 and -",
+		);
+	const count = Math.min(n, LOG_MAX_LINES);
+	for (let i = 1; i <= count; i++) deps.log(`fixture-log ${tag} ${i}`);
+	return json({ logged: count, tag });
 }
 
 function sse(request: Request, deps: FixtureDeps, url: URL): Response {
@@ -126,9 +182,19 @@ function sse(request: Request, deps: FixtureDeps, url: URL): Response {
 	deps.keepOpen(request);
 	const encoder = new TextEncoder();
 	let timer: ReturnType<typeof setInterval> | undefined;
+	let limit: ReturnType<typeof setTimeout> | undefined;
 	let n = 0;
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
+			const end = () => {
+				clearInterval(timer);
+				clearTimeout(limit);
+				try {
+					controller.close();
+				} catch {
+					// already closed
+				}
+			};
 			const send = () => {
 				n += 1;
 				try {
@@ -143,17 +209,12 @@ function sse(request: Request, deps: FixtureDeps, url: URL): Response {
 			};
 			send();
 			timer = setInterval(send, everyMs);
-			request.signal.addEventListener("abort", () => {
-				clearInterval(timer);
-				try {
-					controller.close();
-				} catch {
-					// already closed
-				}
-			});
+			limit = setTimeout(end, deps.sseLimitMs ?? SSE_MAX_MS);
+			request.signal.addEventListener("abort", end);
 		},
 		cancel() {
 			clearInterval(timer);
+			clearTimeout(limit);
 		},
 	});
 	return new Response(stream, {
@@ -176,11 +237,9 @@ async function egressIp(deps: FixtureDeps): Promise<Response> {
 			const ip = (await answer.text()).trim();
 			if (answer.ok && /^[0-9a-f.:]{3,45}$/i.test(ip))
 				return json({ ip, source });
-			errors.push(`${source}: HTTP ${answer.status}`);
+			errors.push(`${new URL(source).host}: HTTP ${answer.status}`);
 		} catch (err) {
-			errors.push(
-				`${source}: ${err instanceof Error ? err.message : String(err)}`,
-			);
+			errors.push(`${new URL(source).host}: ${genericError(messageOf(err))}`);
 		}
 	}
 	return fail(502, "no_answer", errors.join("; "));
@@ -198,7 +257,7 @@ async function tcp(deps: FixtureDeps, url: URL): Promise<Response> {
 		host: allowed.host,
 		port: allowed.port,
 		connected: result.connected,
-		error: result.error,
+		error: result.error === null ? null : genericError(result.error),
 		ms: Math.round(performance.now() - started),
 	});
 }
@@ -228,7 +287,7 @@ async function fetchStatus(deps: FixtureDeps, url: URL): Promise<Response> {
 			url: allowed.url.href,
 			connected: false,
 			status: null,
-			error: err instanceof Error ? err.message : String(err),
+			error: genericError(messageOf(err)),
 			ms: Math.round(performance.now() - started),
 		});
 	}
@@ -291,6 +350,8 @@ export async function handleFixture(
 			return tcp(deps, url);
 		case "/fetch":
 			return fetchStatus(deps, url);
+		case "/log":
+			return log(deps, url);
 		case "/build-assets":
 			return json({ assets: await deps.assets() });
 	}

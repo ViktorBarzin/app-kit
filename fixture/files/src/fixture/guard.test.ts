@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
 	fetchAllowed,
+	hashedName,
 	ownOrigins,
 	SLOW_MAX_S,
 	slowSeconds,
@@ -91,9 +92,11 @@ describe("fetchAllowed: never an open proxy", () => {
 		).toBe(true);
 	});
 
-	test("https on a host under viktorbarzin.me", () => {
+	test("a public host is refused unless the owner lists its origin", () => {
+		const url = "https://p17a-abc123.viktorbarzin.me/info";
+		expect(fetchAllowed(url, own).ok).toBe(false);
 		expect(
-			fetchAllowed("https://p17a-abc123.viktorbarzin.me/info", own).ok,
+			fetchAllowed(url, new Set(["https://p17a-abc123.viktorbarzin.me"])).ok,
 		).toBe(true);
 	});
 
@@ -111,6 +114,41 @@ describe("fetchAllowed: never an open proxy", () => {
 			"",
 		])
 			expect([url, fetchAllowed(url, own).ok]).toEqual([url, false]);
+	});
+});
+
+describe("hashedName: hashes only what the suite sets and the cells read", () => {
+	test("the suite's own names and the cells' built-in variables", () => {
+		for (const name of [
+			"TOKEN",
+			"SESSION_SECRET",
+			"FOO",
+			"VITE_GREETING",
+			"VITE_KEY",
+			"P27_IMPORT_1",
+			"P76_SECRET",
+			"FIXTURE_ANYTHING",
+			"SERVICE_VERSION",
+			"CLOUD_INSTANCE_ID",
+			"CLOUD_PUBLIC_URL",
+		])
+			expect([name, hashedName(name)]).toEqual([name, true]);
+	});
+
+	test("never a platform credential or system variable", () => {
+		for (const name of [
+			"DATABASE_URL",
+			"DATABASE_PASSWORD_FILE",
+			"CLOUD_EDGE_SECRET",
+			"REDIS_URL",
+			"S3_SECRET_ACCESS_KEY",
+			"CLOUD_URL_API",
+			"PATH",
+			"HOSTNAME",
+			"KUBERNETES_SERVICE_HOST",
+			"P_NOT_A_SPEC",
+		])
+			expect([name, hashedName(name)]).toEqual([name, false]);
 	});
 });
 

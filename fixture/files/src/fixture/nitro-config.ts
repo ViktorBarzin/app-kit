@@ -22,6 +22,7 @@ export const FIXTURE_ROUTES = [
 	"/tcp",
 	"/fetch",
 	"/build-assets",
+	"/log",
 	"/enqueue",
 	"/kv-selftest",
 	"/upload",
