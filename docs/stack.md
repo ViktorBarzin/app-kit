@@ -212,12 +212,20 @@ flowchart LR
 - **Staging.** `cloud file export <p> --rename <p>-staging > s.yaml`, then
   `cloud apply s.yaml`, makes a copy with renamed Apps (`cloud help
   environments`).
+- **Instances.** `instances: 2` (or 3) on the App in the Project File
+  runs that many copies; each counts the App's Size against the Budget,
+  and each request goes to one of them, so keep state in Postgres, never
+  in memory. Each instance opens its own pool, and Cloud counts it twice
+  against its Postgres (Connections, above). With 2 or more, one crash or
+  node drain leaves the others serving (`cloud help limits`).
 
 The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
 `CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_POOL_SIZE`,
-`CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS` (`public` or
-`private`). `src/server/env.server.ts` reads all but `CLOUD_ACCESS`;
-`CLOUD_ACCESS` is the edge's setting, and the app does not read it.
+`CLOUD_DATABASE_CONNECTION_LIMIT`, `CLOUD_ACCESS` (`public` or `private`)
+and `CLOUD_INSTANCE_ID` (the instance's pod name; `cloud logs` shows its
+last 5 characters on each line). `src/server/env.server.ts` reads all but
+`CLOUD_ACCESS` and `CLOUD_INSTANCE_ID`: the first is the edge's setting,
+the second a label for logs.
 
 ## Workers and cron jobs on Cloud
 

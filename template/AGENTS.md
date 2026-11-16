@@ -112,6 +112,11 @@ are, except where this section says otherwise.
   email or signed webhook, add a channel:
   `cloud notifications channels add email <address>` or
   `... add webhook <url>` (`cloud help notifications`).
+- **Instances.** `instances: 2` (or 3) on the App in the Project File
+  runs that many copies, each counted against the Budget at the App's
+  Size. Each request goes to one of them, so keep state in Postgres,
+  never in memory. Each reads its id in `CLOUD_INSTANCE_ID`, and
+  `cloud logs` shows its last 5 characters on each line.
 - **Network and limits.** No email from the app: Cloud blocks TCP 25,
   465, 587 and 2525. The app reaches the internet over IPv4 only, from one
   shared address (`cloud help apps`). A request has 125 seconds to start
