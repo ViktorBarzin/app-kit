@@ -382,8 +382,9 @@ flowchart LR
   only once that path answers 2xx, so a version that cannot serve fails
   its Deploy as `health_check` and the version before keeps serving. On a
   live app, Kubernetes restarts an instance that fails the check for
-  60 s; a new instance has 5 min to answer the first time. Keep the route
-  free of database calls. An app made before this setting existed adds
+  60 s, and after that restart the instance has 5 min to answer the first
+  time. A new version has 3 min from its start, or its Deploy fails. Keep
+  the route free of database calls. An app made before this setting existed adds
   `healthCheckPath: /healthz` to its service in the Project File
   (`cloud file export`, edit, `cloud apply`). `cloud events <project>
   <app>` lists crashes (with the exit code, or `OOMKilled`), failed checks
