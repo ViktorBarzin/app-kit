@@ -6,8 +6,9 @@
  *   connection opens, so a Vault rotation does not break new connections.
  * - An app pod keeps at most 5 connections by default: the pool
  *   (APP_POOL_MAX = 4) plus the realtime LISTEN connection. The migrate
- *   entrypoint uses 1. A platform with a smaller per-role connection limit
- *   sizes the pool with `max` and connectionBudget().
+ *   entrypoint uses 1. On Cloud the pool is CLOUD_DATABASE_POOL_SIZE
+ *   (connectionBudgetFromEnv); a platform with a smaller per-role
+ *   connection limit sizes the pool with `max` and connectionBudget().
  * - Nothing connects at import time: the first getDb() call opens the pool.
  * - drizzle-orm's migrator takes no lock of its own, so runMigrations holds a
  *   session-level pg_advisory_lock around it.
@@ -62,12 +63,27 @@ export function connectionBudget(limit: number | null): ConnectionBudget {
 }
 
 /**
- * connectionBudget() for the platform contract's
- * CLOUD_DATABASE_CONNECTION_LIMIT (a whole number; unset or empty: no limit).
+ * The per-pod budget from the platform contract:
+ *
+ * - CLOUD_DATABASE_POOL_SIZE (a whole number >= 1): Cloud's own count of
+ *   the pool each pod may open, with the LISTEN connection on top. Cloud
+ *   works it out from the role's limit, the App's instances and every other
+ *   process on the database.
+ * - else CLOUD_DATABASE_CONNECTION_LIMIT: connectionBudget(limit), half the
+ *   role's limit.
+ * - else no limit: the default pool of APP_POOL_MAX plus one LISTEN.
  */
 export function connectionBudgetFromEnv(
 	env: Record<string, string | undefined> = process.env,
 ): ConnectionBudget {
+	const pool = nonEmpty(env.CLOUD_DATABASE_POOL_SIZE);
+	if (pool !== null) {
+		if (!/^[0-9]+$/.test(pool) || Number(pool) < 1)
+			throw new Error(
+				`CLOUD_DATABASE_POOL_SIZE must be a whole number of at least 1 (got "${pool}")`,
+			);
+		return { perPod: Number(pool) + 1, poolMax: Number(pool), realtime: true };
+	}
 	const raw = nonEmpty(env.CLOUD_DATABASE_CONNECTION_LIMIT);
 	if (raw === null) return connectionBudget(null);
 	if (!/^[0-9]+$/.test(raw))

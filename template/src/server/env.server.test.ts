@@ -244,7 +244,10 @@ describe("cloud mode", () => {
 
 describe("connection budget", () => {
 	test("without a limit: pool 4 and realtime", () => {
-		setEnv({ CLOUD_DATABASE_CONNECTION_LIMIT: undefined });
+		setEnv({
+			CLOUD_DATABASE_CONNECTION_LIMIT: undefined,
+			CLOUD_DATABASE_POOL_SIZE: undefined,
+		});
 		expect(connectionBudget()).toEqual({
 			perPod: 5,
 			poolMax: 4,
@@ -261,5 +264,18 @@ describe("connection budget", () => {
 		setEnv({ CLOUD_DATABASE_CONNECTION_LIMIT: limit });
 		expect(connectionBudget().poolMax).toBe(poolMax);
 		expect(realtimeEnabled()).toBe(realtime);
+	});
+
+	test("CLOUD_DATABASE_POOL_SIZE sets the pool, with realtime on top", () => {
+		setEnv({
+			CLOUD_DATABASE_POOL_SIZE: "1",
+			CLOUD_DATABASE_CONNECTION_LIMIT: "8",
+		});
+		expect(connectionBudget()).toEqual({
+			perPod: 2,
+			poolMax: 1,
+			realtime: true,
+		});
+		setEnv({ CLOUD_DATABASE_POOL_SIZE: undefined });
 	});
 });

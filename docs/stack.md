@@ -101,7 +101,7 @@ flowchart LR
   E -- "/oauth2/auth subrequest" --> O[oauth2-proxy]
   E -- "/oauth2/*" --> O
   E -- "X-Cloud-User-* + X-Cloud-Edge-Secret" --> A["App, createCloudAuth"]
-  A --> PG[("Project Postgres<br/>connection limit 2, 4 or 8")]
+  A --> PG[("Project Postgres<br/>connection limit 4, 8 or 16")]
 ```
 
 - **Identity.** The edge signs people in and sends `X-Cloud-User-Id`,
@@ -115,15 +115,23 @@ flowchart LR
   through, and the template's home page shows them a landing page with a
   "Sign in" link (200). A private App's edge sends a signed-out page load to
   sign-in first, so it never reaches the App.
-- **Connections.** A pod uses `floor(CLOUD_DATABASE_CONNECTION_LIMIT / 2)`,
-  because a rollout overlaps two pods. Realtime needs 2 of them; on a nano
-  database (limit 2) it is off, and lists refetch every `app.pollMs`.
+- **Connections.** Cloud sets `CLOUD_DATABASE_POOL_SIZE`, the pool each
+  pod may open, and the pod adds 1 `LISTEN` connection. Cloud counts every
+  process on the database at its peak: each App instance and the one extra
+  instance a rollout starts, `migrate` (1, inside that extra instance), each
+  worker (1), each cron run (1). The pool takes what is left, split across
+  the instances, at most 4. `cloud plan` refuses a Project File whose
+  processes need more than the Size gives and names the Size to pick
+  (`cloud help limits`).
 
-| Size | Limit | Pool | LISTEN |
+| Size | Limit | One App, 1 instance | App with 2 instances, a worker and a cron |
 |---|---|---|---|
-| nano | 2 | 1 | off |
-| small | 4 | 1 | 1 |
-| medium | 8 | 3 | 1 |
+| nano | 4 | pool 1 + LISTEN | refused: pick small |
+| small | 8 | pool 3 + LISTEN | pool 1 + LISTEN per instance |
+| medium | 16 | pool 4 + LISTEN | pool 3 + LISTEN per instance |
+
+  A pod on an older `@viktorbarzin/pg` reads `CLOUD_DATABASE_CONNECTION_LIMIT`
+  and uses half of it, which fits only an App with 1 instance.
 
 - **Migrations** run from `drizzle/` before each deploy, in an init
   container with the args `["entrypoints/migrate.js"]`.
@@ -173,8 +181,9 @@ flowchart LR
   environments`).
 
 The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
-`CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS`
-(`public` or `private`). `src/server/env.server.ts` reads the first four;
+`CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_POOL_SIZE`,
+`CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS` (`public` or
+`private`). `src/server/env.server.ts` reads all but `CLOUD_ACCESS`;
 `CLOUD_ACCESS` is the edge's setting, and the app does not read it.
 
 ## The template and the infra path
@@ -326,9 +335,9 @@ Each app gets its own database and role on the shared CloudNativePG cluster.
 No app runs its own database pod.
 
 - **Connections.** Each pod uses 5: a pool of 4 and 1 `LISTEN` connection
-  (on Cloud, half the role's connection limit; see "Running on Cloud").
+  (on Cloud, a pool of `CLOUD_DATABASE_POOL_SIZE`; see "Running on Cloud").
   The `migrate` init container uses 1 more while it runs. A CronJob uses at
-  most 2. The primary allows 200 in total, so more replicas need a check of
+  most 2. The primary allows 300 in total, so more replicas need a check of
   the budget first.
 - **Migrations.** `bun run db:generate` writes them to `drizzle/`. The
   `migrate` init container applies them from the same image, under

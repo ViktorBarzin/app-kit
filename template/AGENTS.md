@@ -299,10 +299,13 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
 
 - Connection budget: 5 per pod on a shared primary. The pool takes 4
   (`APP_POOL_MAX`), the realtime LISTEN connection 1; the migrate init
-  container uses 1 more while it runs. On Cloud the pod gets half of
-  `CLOUD_DATABASE_CONNECTION_LIMIT` (`connectionBudget()` in
-  `env.server.ts`), and realtime only when that is at least 2. More replicas
-  or a CronJob multiply this, so ask before adding either.
+  container uses 1 more while it runs. On Cloud the pool is
+  `CLOUD_DATABASE_POOL_SIZE` plus the LISTEN connection
+  (`connectionBudget()` in `env.server.ts`); Cloud counts every instance,
+  worker and cron on the database and refuses a Plan that does not fit
+  (`cloud help limits`). Without it the pod gets half of
+  `CLOUD_DATABASE_CONNECTION_LIMIT`. More replicas or a CronJob multiply
+  this, so ask before adding either.
 - Migrations are additive: expand in one release, contract in a later one, so
   the previous image stays a working rollback.
 - The same rule covers server functions. A tab opened before a deploy keeps

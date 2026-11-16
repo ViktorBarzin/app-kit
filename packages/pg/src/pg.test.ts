@@ -138,6 +138,46 @@ describe("connectionBudget", () => {
 });
 
 describe("connectionBudgetFromEnv", () => {
+	test("CLOUD_DATABASE_POOL_SIZE is the pool; the LISTEN connection comes on top", () => {
+		expect(connectionBudgetFromEnv({ CLOUD_DATABASE_POOL_SIZE: "1" })).toEqual({
+			perPod: 2,
+			poolMax: 1,
+			realtime: true,
+		});
+		expect(
+			connectionBudgetFromEnv({ CLOUD_DATABASE_POOL_SIZE: " 3 " }),
+		).toEqual({ perPod: 4, poolMax: 3, realtime: true });
+	});
+
+	test("CLOUD_DATABASE_POOL_SIZE wins over CLOUD_DATABASE_CONNECTION_LIMIT", () => {
+		expect(
+			connectionBudgetFromEnv({
+				CLOUD_DATABASE_POOL_SIZE: "1",
+				CLOUD_DATABASE_CONNECTION_LIMIT: "16",
+			}),
+		).toEqual({ perPod: 2, poolMax: 1, realtime: true });
+	});
+
+	test("an empty CLOUD_DATABASE_POOL_SIZE falls back to the connection limit", () => {
+		expect(
+			connectionBudgetFromEnv({
+				CLOUD_DATABASE_POOL_SIZE: "",
+				CLOUD_DATABASE_CONNECTION_LIMIT: "4",
+			}),
+		).toEqual({ perPod: 2, poolMax: 1, realtime: true });
+	});
+
+	test.each([
+		"0",
+		"two",
+		"1.5",
+		"-1",
+	])("a pool size of %p is a configuration error", (value) => {
+		expect(() =>
+			connectionBudgetFromEnv({ CLOUD_DATABASE_POOL_SIZE: value }),
+		).toThrow("CLOUD_DATABASE_POOL_SIZE");
+	});
+
 	test("reads CLOUD_DATABASE_CONNECTION_LIMIT", () => {
 		expect(
 			connectionBudgetFromEnv({ CLOUD_DATABASE_CONNECTION_LIMIT: "4" }),

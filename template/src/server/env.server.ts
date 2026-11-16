@@ -79,8 +79,10 @@ export function pgSettings(): PgSettings {
 }
 
 /**
- * The pod's Postgres connections: half of CLOUD_DATABASE_CONNECTION_LIMIT
- * on Cloud, else the default pool of 4 plus the realtime LISTEN connection.
+ * The pod's Postgres connections: on Cloud a pool of
+ * CLOUD_DATABASE_POOL_SIZE plus the realtime LISTEN connection (older
+ * Clouds: half of CLOUD_DATABASE_CONNECTION_LIMIT), else the default pool
+ * of 4 plus the LISTEN connection.
  */
 export function connectionBudget(): ConnectionBudget {
 	return connectionBudgetFromEnv(runtimeEnv);
