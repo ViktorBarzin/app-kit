@@ -23,12 +23,22 @@ export const FIXTURE_ROUTES = [
 	"/fetch",
 	"/build-assets",
 	"/log",
+	"/fill",
+	"/sink/**",
 	"/enqueue",
 	"/kv-selftest",
 	"/upload",
 	"/files/**",
 	"/probe/**",
 ] as const;
+
+/**
+ * Nitro runtime plugins the variant adds after the template's own: P49's
+ * pg-busy-plugin.ts.
+ */
+export const fixturePlugins = [
+	fileURLToPath(new URL("./pg-busy-plugin.ts", import.meta.url)),
+];
 
 /**
  * WebSocket support only in `vite build`: Nitro's dev server under

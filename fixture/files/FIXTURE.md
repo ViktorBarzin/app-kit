@@ -11,7 +11,7 @@ handlers (`src/fixture/nitro-config.ts`), matched before TanStack Start.
 
 | Route | Answer |
 |---|---|
-| `GET /info` | `bootTime`, `serviceVersion` (`SERVICE_VERSION`), `instanceId` (`CLOUD_INSTANCE_ID` or null), `pid`, `env` and `empty`. `env` has every env name. Its value is the SHA-256 hex of the variable's value for the names the parity suite sets (`TOKEN`, `SESSION_SECRET`, `FOO`, `VITE_GREETING`, `VITE_KEY`, and names starting `FIXTURE_` or a checklist ID such as `P27_`) and for `SERVICE_VERSION`, `CLOUD_INSTANCE_ID` and `CLOUD_PUBLIC_URL`; it is null for every other name, so a platform credential's hash is never on a public URL. `empty` lists the names whose value is empty. Never a value. |
+| `GET /info` | `bootTime`, `serviceVersion` (`SERVICE_VERSION`), `instanceId` (`CLOUD_INSTANCE_ID` or null), `pid`, `env` and `empty`. `env` has every env name. Its value is the SHA-256 hex of the variable's value for the names the parity suite sets (`TOKEN`, `SESSION_SECRET`, `FOO`, `VITE_GREETING`, `VITE_KEY`, and names starting `FIXTURE_` or a checklist ID such as `P27_`) and for `SERVICE_VERSION`, `CLOUD_INSTANCE_ID` and `CLOUD_PUBLIC_URL`; it is null for every other name, so a platform credential's hash is never on a public URL. `empty` lists the names whose value is empty. `urls` shows each `CLOUD_URL_<NAME>` in clear: the address of a Service the App connects to (null if it carries a user or password). No other value. |
 | `GET /items` | Writes a row to table `items` (from the template's migration), reads it back, then deletes it: `{wrote, read, deleted}`. 503 without `DATABASE_URL`. |
 | `GET /enqueue` | Queues a pg-boss job with a fresh id on queue `fixture`: `{id}`. The worker entrypoint logs `job-done <id>` when it has done it. It uses the App's own pool through pg-boss's `fromBunSql`, so it opens no second pool. 503 without `DATABASE_URL`. |
 | `GET /crash` | 202, then the process exits with code 42. |
@@ -21,10 +21,13 @@ handlers (`src/fixture/nitro-config.ts`), matched before TanStack Start.
 | `GET /slow?s=N` | Answers after N seconds, at most 600. |
 | `GET /ws` | WebSocket: sends every text frame back. |
 | `GET /sse?every=N` | Server-Sent Events: one `data:` event at once, then one every N seconds (default 5). The stream ends after 15 min. |
-| `GET /log?n=N&tag=T` | Writes N lines `fixture-log T 1` to `fixture-log T N` to the App's log, at most 200; T is 1-40 of a-z, 0-9 and `-`. |
+| `GET /log?n=N&tag=T` | Writes N lines `fixture-log T 1` to `fixture-log T N` to the App's log, at most 200; T is 1-40 of a-z, 0-9 and `-`. `&level=error`, `warn` or `info` starts each line with that word in capitals (`ERROR fixture-log T 1`), so `cloud logs --level` reads it. |
 | `GET /egress-ip` | `{ip, source}`: the address a public IP echo service sees. |
 | `GET /tcp?host=H&port=P` | A TCP connect with a 9 s timeout, under the SMTP test's 10 s: `{connected, error, ms}`; `error` is only the kind of failure (`timeout`, `refused`, `dns`, `unreachable`, `reset` or `error`). Only `smtp.gmail.com` on ports 25, 465, 587, 2525 and 443, and `www.google.com` on 443, the SMTP test's control. |
 | `GET /fetch?url=U` | A GET with a 10 s timeout: `{connected, status, error, ms}`, never the body; `error` as for `/tcp`. Only the App's own origins (`CLOUD_PUBLIC_URL`, each `CLOUD_URL_<NAME>`) and the origins its owner lists, comma-separated, in `FIXTURE_FETCH_ALLOW`. |
+| `GET /fill?mb=N` | Writes N MiB (1 to 256) of random bytes to table `fixture_fill`, so the database grows by about that much: `{wroteMib, tableMib}`. `GET /fill?clear=1` drops the table. 503 without `DATABASE_URL`. |
+| `POST /sink/<name>` | Only with `FIXTURE_SINK=on`: a webhook receiver. Keeps the delivery in memory and answers 200, or 500 when the name starts with `fail-`. The name is 16-80 of A-Z, a-z, 0-9, `_` and `-`; it is the only key, so make it long and random. It keeps the `webhook-*` headers, `content-type`, `user-agent` and the body, never another header. |
+| `GET /sink/<name>/inbox` | `{deliveries}`, oldest first: each with `n`, `at`, `method`, `headers`, `body`, `truncated` and `answered`. At most 200 per name and 50 names. |
 | `GET /build-assets` | `{assets}`: the client build's JS files, for the build env test. |
 | `/kv-selftest`, `/upload`, `/files/:key`, `/probe/pg`, `/probe/kv`, `/probe/s3` | 501 `{"error":{"code":"not_in_this_batch"}}` until a later batch of the parity work. |
 
@@ -42,4 +45,15 @@ whole number of seconds, 0 by default, then logs `tick` and exits 0, so
 `bun entrypoints/tick.js 400` outlasts a 5 minute schedule. `seed.js` logs
 `seed-ran` and exits 0.
 
-Knobs a test changes in a commit are in `src/fixture/knobs.ts`.
+Knobs a test changes in a commit are in `src/fixture/knobs.ts`:
+`HEALTHZ_FAILS_AT_BOOT`, `REVISION`, and for the migrate step
+`MIGRATION_LOG` (a line it prints first, such as `migration-ran`) and
+`MIGRATION_EXIT` (not 0: it prints why and exits with that code before
+it migrates, so the Deploy fails).
+
+`FIXTURE_PG_BUSY=<seconds>` (1 to 60) in the App's env keeps every
+Postgres connection the process may open busy with `select
+pg_sleep(<seconds>)`: the App from boot, `worker.js` until it stops, and
+each `tick.js` run for 60 s before it logs `tick`. A query that fails
+logs `pg-busy-error` with Postgres's message, such as `too many
+connections for role`.

@@ -308,6 +308,13 @@ describe("applyVariant (the fixture)", () => {
 			expect([file, existsSync(join(target, file))]).toEqual([file, true]);
 		const vite = await readFile(join(target, "vite.config.ts"), "utf8");
 		expect(vite).toContain("...fixtureNitro,");
+		expect(vite).toContain("...fixturePlugins,");
+		const migrate = await readFile(
+			join(target, "src/entrypoints/migrate.ts"),
+			"utf8",
+		);
+		expect(migrate).toContain("runFixtureMigration(");
+		expect(migrate).toContain("{ log: MIGRATION_LOG, exit: MIGRATION_EXIT }");
 		const docker = await readFile(join(target, "Dockerfile"), "utf8");
 		expect(docker).toContain(
 			"ARG VITE_GREETING\nARG VITE_KEY\nARG CLOUD_BUILD_ENV=\nRUN eval",

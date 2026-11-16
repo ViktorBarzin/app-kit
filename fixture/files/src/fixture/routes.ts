@@ -12,6 +12,7 @@ import {
 	slowSeconds,
 	tcpAllowed,
 } from "./guard";
+import { SINK_NAME, type SinkStore, sinkEnabled, sinkStore } from "./sink";
 
 /** The exit code /crash exits with. */
 export const CRASH_EXIT_CODE = 42;
@@ -33,6 +34,12 @@ export const SSE_MAX_MS = 15 * 60_000;
 
 /** The most lines one /log call writes. */
 export const LOG_MAX_LINES = 200;
+
+/** /log's `level`: the word each line starts with, upper-cased, as `cloud logs --level` reads it. */
+const LOG_LEVELS = new Set(["error", "warn", "info"]);
+
+/** The most MiB one /fill call writes. */
+export const FILL_MAX_MIB = 256;
 
 export const NOT_IN_THIS_BATCH = {
 	error: {
@@ -77,6 +84,12 @@ export interface FixtureDeps {
 	assets: () => Promise<string[]>;
 	/** Queues a pg-boss job on queue `fixture` and returns its id; null without a database. */
 	enqueue: (() => Promise<string>) | null;
+	/** Writes `mib` MiB of random bytes to table fixture_fill; null without a database. */
+	fill: ((mib: number) => Promise<{ tableMib: number }>) | null;
+	/** Drops table fixture_fill; null without a database. */
+	clearFill: (() => Promise<void>) | null;
+	/** The webhook sink's store; the process's own unless a test sets one. */
+	sink?: SinkStore;
 }
 
 interface FixtureState {
@@ -114,6 +127,35 @@ const fail = (status: number, code: string, message: string) =>
 	json({ error: { code, message } }, status);
 
 /**
+ * The value of each CLOUD_URL_<NAME>: the address of a Service the App
+ * connects to, inside the cluster. An address, never a credential: one
+ * that carries a user or password, or is not an http(s) URL, shows null.
+ */
+export function serviceUrls(
+	env: Record<string, string | undefined>,
+): Record<string, string | null> {
+	const out: Record<string, string | null> = {};
+	for (const name of Object.keys(env).sort()) {
+		const value = env[name];
+		if (!name.startsWith("CLOUD_URL_") || value === undefined) continue;
+		let shown: string | null = null;
+		try {
+			const url = new URL(value.trim());
+			if (
+				(url.protocol === "http:" || url.protocol === "https:") &&
+				!url.username &&
+				!url.password
+			)
+				shown = value.trim();
+		} catch {
+			shown = null;
+		}
+		out[name] = shown;
+	}
+	return out;
+}
+
+/**
  * Every env name; the SHA-256 of a value only for the names hashedName
  * allows (null for the rest), and the names whose value is empty.
  */
@@ -133,6 +175,7 @@ function info(deps: FixtureDeps): Response {
 		pid: process.pid,
 		env,
 		empty,
+		urls: serviceUrls(deps.env),
 	});
 }
 
@@ -176,9 +219,13 @@ function log(deps: FixtureDeps, url: URL): Response {
 			"bad_log_request",
 			"n must be a whole number and tag 1-40 of a-z, 0-9 and -",
 		);
+	const level = url.searchParams.get("level");
+	if (level !== null && !LOG_LEVELS.has(level))
+		return fail(400, "bad_log_request", "level must be error, warn or info");
+	const prefix = level === null ? "" : `${level.toUpperCase()} `;
 	const count = Math.min(n, LOG_MAX_LINES);
-	for (let i = 1; i <= count; i++) deps.log(`fixture-log ${tag} ${i}`);
-	return json({ logged: count, tag });
+	for (let i = 1; i <= count; i++) deps.log(`${prefix}fixture-log ${tag} ${i}`);
+	return json({ logged: count, tag, level });
 }
 
 function sse(request: Request, deps: FixtureDeps, url: URL): Response {
@@ -298,6 +345,64 @@ async function fetchStatus(deps: FixtureDeps, url: URL): Promise<Response> {
 	}
 }
 
+/** /fill?mb=N writes N MiB (1 to FILL_MAX_MIB); /fill?clear=1 drops the table. */
+async function fill(deps: FixtureDeps, url: URL): Promise<Response> {
+	if (!deps.fill || !deps.clearFill)
+		return fail(503, "no_database", "the App has no DATABASE_URL");
+	if (url.searchParams.get("clear") === "1") {
+		await deps.clearFill();
+		return json({ cleared: true });
+	}
+	const mb = url.searchParams.get("mb") ?? "";
+	const mib = /^\d+$/.test(mb) ? Number(mb) : 0;
+	if (mib < 1 || mib > FILL_MAX_MIB)
+		return fail(
+			400,
+			"bad_fill_request",
+			`mb must be a whole number from 1 to ${FILL_MAX_MIB}, or clear=1`,
+		);
+	const written = await deps.fill(mib);
+	deps.log(`fixture-fill ${mib} MiB, table ${written.tableMib} MiB`);
+	return json({ wroteMib: mib, tableMib: written.tableMib });
+}
+
+/** POST /sink/<name> keeps a delivery; GET /sink/<name>/inbox lists them. */
+async function sink(
+	request: Request,
+	deps: FixtureDeps,
+	url: URL,
+): Promise<Response> {
+	if (!sinkEnabled(deps.env))
+		return fail(404, "not_found", "the sink is off: set FIXTURE_SINK=on");
+	const match = /^\/sink\/([^/]+)(\/inbox)?$/.exec(url.pathname);
+	const name = match?.[1] ?? "";
+	if (!SINK_NAME.test(name))
+		return fail(
+			400,
+			"bad_sink_name",
+			"a sink name is 16-80 of A-Z, a-z, 0-9, _ and -",
+		);
+	const store = deps.sink ?? sinkStore();
+	if (match?.[2]) {
+		if (request.method !== "GET")
+			return fail(405, "method_not_allowed", "read an inbox with GET");
+		return json({ deliveries: store.inbox(name) });
+	}
+	if (request.method === "GET" || request.method === "HEAD")
+		return fail(
+			405,
+			"method_not_allowed",
+			"send a delivery with POST; read it at /sink/<name>/inbox",
+		);
+	const kept = store.record(name, {
+		method: request.method,
+		headers: request.headers,
+		body: await request.text(),
+		at: new Date(),
+	});
+	return json({ stored: kept.n }, kept.answered);
+}
+
 const LATER = [
 	/^\/kv-selftest$/,
 	/^\/upload$/,
@@ -362,7 +467,10 @@ export async function handleFixture(
 			if (!deps.enqueue)
 				return fail(503, "no_database", "the App has no DATABASE_URL");
 			return json({ id: await deps.enqueue() });
+		case "/fill":
+			return fill(deps, url);
 	}
+	if (url.pathname.startsWith("/sink/")) return sink(request, deps, url);
 	if (LATER.some((pattern) => pattern.test(url.pathname)))
 		return json(NOT_IN_THIS_BATCH, 501);
 	return fail(404, "not_found", `${url.pathname} is not a fixture route`);

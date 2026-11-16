@@ -9,7 +9,9 @@ import {
 	handleFixture,
 	LOG_MAX_LINES,
 	NOT_IN_THIS_BATCH,
+	serviceUrls,
 } from "./routes";
+import { SinkStore } from "./sink";
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 
@@ -62,6 +64,9 @@ function deps(overrides: Partial<FixtureDeps> = {}): FixtureDeps & {
 		allocate: () => {},
 		assets: async () => ["/assets/main-1.js"],
 		enqueue: async () => "0b6d3c1e-5f1a-4c55-9a43-3f1b2c4d5e6f",
+		fill: async (mib) => ({ tableMib: mib + 1 }),
+		clearFill: async () => {},
+		sink: new SinkStore(),
 		exits,
 		slept,
 		deleted,
@@ -363,5 +368,142 @@ describe("later batches", () => {
 test("/build-assets lists the client's JS files", async () => {
 	expect(await (await get("/build-assets", deps())).json()).toEqual({
 		assets: ["/assets/main-1.js"],
+	});
+});
+
+describe("/info urls", () => {
+	test("shows each CLOUD_URL_<NAME> in clear, and null for one with a credential", async () => {
+		const response = await get(
+			"/info",
+			deps({
+				env: {
+					CLOUD_URL_P17A_K3X9QA:
+						"http://p17a-k3x9qa.p-p17.svc.cluster.local:3000",
+					CLOUD_URL_BAD: "http://u:pw@db.example/",
+					TOKEN: "s3cret",
+				},
+			}),
+		);
+		const body = (await response.json()) as { urls: Record<string, unknown> };
+		expect(body.urls).toEqual({
+			CLOUD_URL_BAD: null,
+			CLOUD_URL_P17A_K3X9QA: "http://p17a-k3x9qa.p-p17.svc.cluster.local:3000",
+		});
+	});
+
+	test("serviceUrls ignores every other name and a value that is not a URL", () => {
+		expect(
+			serviceUrls({ DATABASE_URL: "postgres://x", CLOUD_URL_X: "not a url" }),
+		).toEqual({ CLOUD_URL_X: null });
+	});
+});
+
+describe("/fill", () => {
+	test("writes N MiB and answers the table's size", async () => {
+		const d = deps();
+		const response = await get("/fill?mb=100", d);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ wroteMib: 100, tableMib: 101 });
+		expect(d.logged).toEqual(["fixture-fill 100 MiB, table 101 MiB"]);
+	});
+
+	test("refuses 0, too much and junk", async () => {
+		for (const q of ["mb=0", "mb=257", "mb=x", ""])
+			expect((await get(`/fill?${q}`, deps())).status).toBe(400);
+	});
+
+	test("clear=1 drops the table", async () => {
+		let cleared = 0;
+		const response = await get(
+			"/fill?clear=1",
+			deps({
+				clearFill: async () => {
+					cleared += 1;
+				},
+			}),
+		);
+		expect(await response.json()).toEqual({ cleared: true });
+		expect(cleared).toBe(1);
+	});
+
+	test("503 without a database", async () => {
+		expect(
+			(await get("/fill?mb=1", deps({ fill: null, clearFill: null }))).status,
+		).toBe(503);
+	});
+});
+
+describe("/sink", () => {
+	const NAME = "Zq9xYw8vUt7sRq6p";
+	const on = () => deps({ env: { FIXTURE_SINK: "on" }, sink: new SinkStore() });
+	const post = (path: string, d: FixtureDeps, body: string) =>
+		handleFixture(
+			new Request(`http://fx.test${path}`, {
+				method: "POST",
+				body,
+				headers: {
+					"content-type": "application/json",
+					"webhook-id": "msg_1",
+					"x-cloud-edge-secret": "edge-secret-value",
+				},
+			}),
+			d,
+		);
+
+	test("is 404 unless FIXTURE_SINK=on", async () => {
+		expect((await post(`/sink/${NAME}`, deps(), "{}")).status).toBe(404);
+	});
+
+	test("keeps a POST, answers 200, and lists it in the inbox without the edge's header", async () => {
+		const d = on();
+		const answer = await post(`/sink/${NAME}`, d, '{"type":"deploy.live"}');
+		expect(answer.status).toBe(200);
+		expect(await answer.json()).toEqual({ stored: 1 });
+		const inbox = await get(`/sink/${NAME}/inbox`, d);
+		const text = await inbox.text();
+		expect(text).not.toContain("edge-secret-value");
+		const body = JSON.parse(text) as {
+			deliveries: { body: string; headers: Record<string, string> }[];
+		};
+		expect(body.deliveries).toHaveLength(1);
+		expect(body.deliveries[0]?.body).toBe('{"type":"deploy.live"}');
+		expect(body.deliveries[0]?.headers["webhook-id"]).toBe("msg_1");
+	});
+
+	test("a fail- name answers 500 and still keeps the delivery", async () => {
+		const d = on();
+		const answer = await post(`/sink/fail-${NAME}`, d, "{}");
+		expect(answer.status).toBe(500);
+		const inbox = (await (await get(`/sink/fail-${NAME}/inbox`, d)).json()) as {
+			deliveries: { answered: number }[];
+		};
+		expect(inbox.deliveries.map((x) => x.answered)).toEqual([500]);
+	});
+
+	test("refuses a short name, a GET on the sink and a POST on the inbox", async () => {
+		const d = on();
+		expect((await post("/sink/short", d, "{}")).status).toBe(400);
+		expect((await get(`/sink/${NAME}`, d)).status).toBe(405);
+		expect((await post(`/sink/${NAME}/inbox`, d, "{}")).status).toBe(405);
+	});
+});
+
+describe("/log level", () => {
+	test("level=error starts each line with ERROR, as cloud logs --level reads it", async () => {
+		const d = deps();
+		const response = await get("/log?n=2&tag=p63-hit&level=error", d);
+		expect(await response.json()).toEqual({
+			logged: 2,
+			tag: "p63-hit",
+			level: "error",
+		});
+		expect(d.logged).toEqual([
+			"ERROR fixture-log p63-hit 1",
+			"ERROR fixture-log p63-hit 2",
+		]);
+	});
+
+	test("an unknown level is refused", async () => {
+		expect((await get("/log?n=1&tag=x&level=debug", deps())).status).toBe(400);
 	});
 });

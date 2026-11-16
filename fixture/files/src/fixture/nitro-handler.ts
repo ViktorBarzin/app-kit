@@ -87,6 +87,32 @@ function allocate(): void {
 	step();
 }
 
+/**
+ * One MiB of pseudo-random bytes per row (65536 md5 digests), so Postgres
+ * cannot compress it; 16 MiB per statement.
+ */
+const FILL_ROWS = `insert into fixture_fill (b)
+	select (select decode(string_agg(md5(random()::text || g::text || r::text), ''), 'hex')
+		from generate_series(1, 65536) g)
+	from generate_series(1, $1::int) r`;
+
+async function fill(mib: number): Promise<{ tableMib: number }> {
+	const client = pool.getClient();
+	await client.unsafe(
+		"create table if not exists fixture_fill (id bigserial primary key, b bytea not null)",
+	);
+	for (let done = 0; done < mib; done += 16)
+		await client.unsafe(FILL_ROWS, [Math.min(16, mib - done)]);
+	const [row] = await client.unsafe(
+		"select pg_total_relation_size('fixture_fill')::bigint as bytes",
+	);
+	return { tableMib: Math.round(Number(row?.bytes ?? 0) / 1048576) };
+}
+
+async function clearFill(): Promise<void> {
+	await pool.getClient().unsafe("drop table if exists fixture_fill");
+}
+
 async function assets(): Promise<string[]> {
 	for (const dir of ["public/assets", ".output/public/assets"]) {
 		const path = join(process.cwd(), dir);
@@ -122,6 +148,8 @@ const deps: FixtureDeps = {
 	enqueue: databaseConfigured()
 		? () => enqueueFixtureJob(() => pool.getClient())
 		: null,
+	fill: databaseConfigured() ? fill : null,
+	clearFill: databaseConfigured() ? clearFill : null,
 };
 
 export default defineHandler((event) => handleFixture(event.req, deps));

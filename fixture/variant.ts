@@ -28,12 +28,19 @@ export const fixtureVariant: TemplateVariant = {
 			path: "vite.config.ts",
 			find: 'import { defineConfig } from "vite";\n',
 			replace:
-				'import { defineConfig } from "vite";\n\nimport { fixtureNitro } from "./src/fixture/nitro-config.ts";\n',
+				'import { defineConfig } from "vite";\n\nimport { fixtureNitro, fixturePlugins } from "./src/fixture/nitro-config.ts";\n',
 		},
 		{
 			path: "vite.config.ts",
 			find: 'preset: "bun",\n',
 			replace: 'preset: "bun",\n\t\t\t...fixtureNitro,\n',
+		},
+		{
+			// P49: the App's own Nitro plugin, after the template's boot steps.
+			path: "vite.config.ts",
+			find: 'new URL("./src/server/nitro-plugin.server.ts", import.meta.url),\n\t\t\t\t),\n',
+			replace:
+				'new URL("./src/server/nitro-plugin.server.ts", import.meta.url),\n\t\t\t\t),\n\t\t\t\t...fixturePlugins,\n',
 		},
 		{
 			// The build env test: a plain env var reaches the bundle, a secret never does.
@@ -80,6 +87,19 @@ export const fixtureVariant: TemplateVariant = {
 			path: "package.json",
 			find: '\t\t"prom-client": "',
 			replace: '\t\t"pg-boss": "^12.38.2",\n\t\t"prom-client": "',
+		},
+		{
+			// P10: the migrate step prints MIGRATION_LOG and exits with MIGRATION_EXIT (knobs.ts).
+			path: "src/entrypoints/migrate.ts",
+			find: 'import { serviceInfo } from "#/server/env.server";\n',
+			replace:
+				'import { MIGRATION_EXIT, MIGRATION_LOG } from "#/fixture/knobs";\nimport { runFixtureMigration } from "#/fixture/migration";\nimport { serviceInfo } from "#/server/env.server";\n',
+		},
+		{
+			path: "src/entrypoints/migrate.ts",
+			find: "process.exitCode = await runMigrateCli({ lockKey: app.migrationLockKey });\n",
+			replace:
+				"process.exitCode = await runFixtureMigration(\n\t() => runMigrateCli({ lockKey: app.migrationLockKey }),\n\t{ log: MIGRATION_LOG, exit: MIGRATION_EXIT },\n\t(line) => console.log(line),\n);\n",
 		},
 	],
 };

@@ -4,6 +4,8 @@
  * seconds (0 by default), then one log line, exit 0. A long sleep keeps a
  * run going past its next start, for the cron overlap test.
  */
+import { holdDuringCronRun } from "#/fixture/pg-busy-process";
+
 const arg = process.argv[2];
 if (arg !== undefined && !/^[0-9]+$/.test(arg)) {
 	console.error(
@@ -11,6 +13,8 @@ if (arg !== undefined && !/^[0-9]+$/.test(arg)) {
 	);
 	process.exit(2);
 }
+// P49: with FIXTURE_PG_BUSY set, the run first holds its connections for 60 s.
+await holdDuringCronRun();
 const slept = arg === undefined ? 0 : Number(arg);
 setTimeout(() => {
 	console.log(
