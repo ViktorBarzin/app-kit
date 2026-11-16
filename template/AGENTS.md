@@ -72,6 +72,14 @@ are, except where this section says otherwise.
 - **Migrations.** `bun run db:generate` writes them to `drizzle/`; commit
   them. Before each deploy Cloud runs `entrypoints/migrate.js` from the image,
   which applies them. Keep them additive (see Database).
+- **Health check.** `cloud new` sets `healthCheckPath: /healthz` in the
+  Project File, and `src/routes/healthz.ts` answers it. Cloud asks it on
+  PORT every 10 s: a Deploy goes live only once it answers 2xx, and an
+  instance that fails it for 60 s is restarted. Keep `/healthz` fast and
+  free of database calls, so a slow database never restarts a working
+  App. `cloud events <project> <app>` lists when the App crashed (with its
+  exit code, or `OOMKilled`), failed the check, or recovered;
+  `cloud projects` names an App that is crashing now.
 - **Connections.** The pod takes half the database's connection limit: the
   pool, plus one LISTEN connection when realtime is on. On a nano database realtime is off and lists refetch every `app.pollMs`;
   invalidate the query after a write, as `routes/index.tsx` does.

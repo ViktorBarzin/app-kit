@@ -377,6 +377,17 @@ flowchart LR
 
 - **Migrations** run from `drizzle/` before each deploy, in an init
   container with the args `["entrypoints/migrate.js"]`.
+- **Health check.** `cloud new` sets `healthCheckPath: /healthz`, which
+  the template's `/healthz` answers with a static ok. A Deploy goes live
+  only once that path answers 2xx, so a version that cannot serve fails
+  its Deploy as `health_check` and the version before keeps serving. On a
+  live app, Kubernetes restarts an instance that fails the check for
+  60 s; a new instance has 5 min to answer the first time. Keep the route
+  free of database calls. An app made before this setting existed adds
+  `healthCheckPath: /healthz` to its service in the Project File
+  (`cloud file export`, edit, `cloud apply`). `cloud events <project>
+  <app>` lists crashes (with the exit code, or `OOMKilled`), failed checks
+  and recoveries; `cloud projects` names an app that is crashing now.
 - **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
 
 The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
