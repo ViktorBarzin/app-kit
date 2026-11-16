@@ -310,7 +310,7 @@ describe("applyVariant (the fixture)", () => {
 		expect(vite).toContain("...fixtureNitro,");
 		const docker = await readFile(join(target, "Dockerfile"), "utf8");
 		expect(docker).toContain(
-			"ARG VITE_GREETING\nARG VITE_KEY\nRUN bun run build",
+			"ARG VITE_GREETING\nARG VITE_KEY\nARG CLOUD_BUILD_ENV=\nRUN eval",
 		);
 		const manifest = JSON.parse(
 			await readFile(join(target, "package.json"), "utf8"),

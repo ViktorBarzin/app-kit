@@ -38,9 +38,9 @@ export const fixtureVariant: TemplateVariant = {
 		{
 			// The build env test: a plain env var reaches the bundle, a secret never does.
 			path: "Dockerfile",
-			find: "RUN bun run build\n",
+			find: "ARG CLOUD_BUILD_ENV=\n",
 			replace:
-				"# Fixture: the build env test reads these two in the client bundle.\nARG VITE_GREETING\nARG VITE_KEY\nRUN bun run build\n",
+				"# Fixture: the build env test reads these two in the client bundle.\nARG VITE_GREETING\nARG VITE_KEY\nARG CLOUD_BUILD_ENV=\n",
 		},
 		{
 			path: "src/routes/__root.tsx",
