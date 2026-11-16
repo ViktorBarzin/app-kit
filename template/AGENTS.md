@@ -301,9 +301,11 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   (`APP_POOL_MAX`), the realtime LISTEN connection 1; the migrate init
   container uses 1 more while it runs. On Cloud the pool is
   `CLOUD_DATABASE_POOL_SIZE` plus the LISTEN connection
-  (`connectionBudget()` in `env.server.ts`); Cloud counts every instance,
-  worker and cron on the database and refuses a Plan that does not fit
-  (`cloud help limits`). Without it the pod gets half of
+  (`connectionBudget()` in `env.server.ts`). Cloud counts each instance
+  twice (during a rollout the old pods keep their connections until they
+  stop), plus each worker and cron on the database, and refuses a Plan
+  that does not fit (`cloud help limits`). A small Postgres holds 2
+  instances, a worker and a cron at pool 1. Without it the pod gets half of
   `CLOUD_DATABASE_CONNECTION_LIMIT`. More replicas or a CronJob multiply
   this, so ask before adding either.
 - Migrations are additive: expand in one release, contract in a later one, so

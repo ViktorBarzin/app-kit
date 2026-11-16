@@ -101,7 +101,7 @@ flowchart LR
   E -- "/oauth2/auth subrequest" --> O[oauth2-proxy]
   E -- "/oauth2/*" --> O
   E -- "X-Cloud-User-* + X-Cloud-Edge-Secret" --> A["App, createCloudAuth"]
-  A --> PG[("Project Postgres<br/>connection limit 4, 8 or 16")]
+  A --> PG[("Project Postgres<br/>connection limit 4, 10 or 20")]
 ```
 
 - **Identity.** The edge signs people in and sends `X-Cloud-User-Id`,
@@ -127,9 +127,9 @@ flowchart LR
 
 | Size | Limit | App, 1 instance | App, 2 instances | App, 1 instance, a worker and a cron | App, 2 instances, a worker and a cron |
 |---|---|---|---|---|---|
-| nano | 4 | pool 1 | refused: small | refused: small | refused: medium |
-| small | 8 | pool 3 | pool 1 | pool 2 | refused: medium |
-| medium | 16 | pool 4 | pool 3 | pool 4 | pool 2 |
+| nano | 4 | pool 1 | refused: small | refused: small | refused: small |
+| small | 10 | pool 4 | pool 1 | pool 3 | pool 1 |
+| medium | 20 | pool 4 | pool 4 | pool 4 | pool 3 |
 
   Each pool is per App pod, with 1 `LISTEN` on top.
   A pod on an older `@viktorbarzin/pg` reads `CLOUD_DATABASE_CONNECTION_LIMIT`
