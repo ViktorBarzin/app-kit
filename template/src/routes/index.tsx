@@ -8,20 +8,19 @@ import { app } from "#/app.config";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { itemKeys } from "#/lib/query-keys";
-import { getAccessStatus } from "#/server/access.functions";
+import { getAccessStatus, type PageAccess } from "#/server/access.functions";
 import { addItem, listItems } from "#/server/items.functions";
 
 /**
- * The auth wall: signed-out visitors go to sign-in (the link comes from the
- * auth object: the app's own on Authentik, the edge's on Cloud), people
- * waiting for approval go to /pending, members see their items.
+ * The home page. Signed-out visitors see a landing page with a sign-in link
+ * (the link comes from the auth object: the app's own on Authentik, the
+ * edge's on Cloud), so a public App answers / with 200. People waiting for
+ * approval go to /pending, members see their items.
  */
 export const Route = createFileRoute("/")({
 	loader: async () => {
 		const status = await getAccessStatus({ data: { returnTo: "/" } });
-		if (!status.signedIn)
-			throw redirect({ href: status.signInUrl, reloadDocument: true });
-		if (!status.member) throw redirect({ to: "/pending" });
+		if (status.signedIn && !status.member) throw redirect({ to: "/pending" });
 		return status;
 	},
 	component: Home,
@@ -29,6 +28,26 @@ export const Route = createFileRoute("/")({
 
 function Home() {
 	const status = Route.useLoaderData();
+	return status.signedIn ? (
+		<Items status={status} />
+	) : (
+		<Landing signInUrl={status.signInUrl} />
+	);
+}
+
+function Landing({ signInUrl }: { signInUrl: string }) {
+	return (
+		<main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-5 p-6">
+			<h1 className="text-2xl font-semibold">{app.displayName}</h1>
+			<p className="text-muted-foreground">Sign in to use {app.displayName}.</p>
+			<Button asChild className="self-start">
+				<a href={signInUrl}>Sign in</a>
+			</Button>
+		</main>
+	);
+}
+
+function Items({ status }: { status: PageAccess }) {
 	const queryClient = useQueryClient();
 	const [title, setTitle] = useState("");
 	// Other tabs' writes arrive over SSE; when the connection budget keeps

@@ -74,6 +74,11 @@ function get(path: string, headers: Record<string, string> = {}) {
 	return fetch(`${server.origin}${path}`, { redirect: "manual", headers });
 }
 
+/** The href of the page's "Sign in" link, or null when there is none. */
+function signInHref(html: string): string | null {
+	return /<a\b[^>]*\bhref="([^"]*)"[^>]*>Sign in<\/a>/.exec(html)?.[1] ?? null;
+}
+
 async function errorCode(res: Response): Promise<string> {
 	return ((await res.json()) as { error: { code: string } }).error.code;
 }
@@ -122,10 +127,14 @@ describe.skipIf(!ready)("the built server in cloud mode", () => {
 		expect(body.error.message).toContain("bearer tokens");
 	});
 
-	test("the home page sends a signed-out visitor to the edge's sign-in", async () => {
+	test("the home page shows a signed-out visitor the edge's sign-in link, with 200", async () => {
+		// A public App's edge passes anonymous requests through, so the home
+		// page answers them itself (parity check P01: 200 on /).
 		const res = await get("/", EDGE);
-		expect([302, 307]).toContain(res.status);
-		expect(res.headers.get("location")).toBe("/oauth2/start?rd=%2F");
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(signInHref(html)).toBe("/oauth2/start?rd=%2F");
+		expect(html).not.toContain('data-testid="username"');
 	});
 
 	test("the app's own sign-in route forwards to the edge too", async () => {

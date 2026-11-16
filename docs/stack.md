@@ -111,6 +111,10 @@ flowchart LR
   `/pending` and `/admin/requests` pages redirect. The edge decides who may
   use a private app. Sign-in and sign-out links are `/oauth2/start?rd=` and
   `/oauth2/sign_out?rd=`. Bearer tokens are not accepted.
+- **Signed-out visitors.** A public App's edge passes anonymous requests
+  through, and the template's home page shows them a landing page with a
+  "Sign in" link (200). A private App's edge sends a signed-out page load to
+  sign-in first, so it never reaches the App.
 - **Connections.** A pod uses `floor(CLOUD_DATABASE_CONNECTION_LIMIT / 2)`,
   because a rollout overlaps two pods. Realtime needs 2 of them; on a nano
   database (limit 2) it is off, and lists refetch every `app.pollMs`.
@@ -402,6 +406,8 @@ sequenceDiagram
   participant K as Authentik
   participant D as App database
   U->>A: open the app with no session
+  A-->>U: landing page with a Sign in link
+  U->>A: follow Sign in, /api/auth/start
   A-->>U: redirect to Authentik
   U->>K: sign in
   K-->>U: redirect back with an authorization code

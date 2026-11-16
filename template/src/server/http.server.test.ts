@@ -85,6 +85,11 @@ function get(
 	});
 }
 
+/** The href of the page's "Sign in" link, or null when there is none. */
+function signInHref(html: string): string | null {
+	return /<a\b[^>]*\bhref="([^"]*)"[^>]*>Sign in<\/a>/.exec(html)?.[1] ?? null;
+}
+
 describe.skipIf(!ready)("the built server", () => {
 	test("/healthz answers ok", async () => {
 		const res = await get("/healthz", null);
@@ -142,10 +147,13 @@ describe.skipIf(!ready)("the built server", () => {
 		}
 	});
 
-	test("the home page sends a signed-out visitor to sign-in", async () => {
+	test("the home page shows a signed-out visitor a sign-in link, with 200", async () => {
 		const res = await get("/", null);
-		expect([302, 307]).toContain(res.status);
-		expect(res.headers.get("location")).toContain("/api/auth/start?return=%2F");
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(html).toContain(app.displayName);
+		expect(signInHref(html)).toBe("/api/auth/start?return=%2F");
+		expect(html).not.toContain('data-testid="username"');
 	});
 
 	test("pages and redirects refuse to be framed", async () => {

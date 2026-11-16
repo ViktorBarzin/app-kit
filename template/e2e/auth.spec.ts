@@ -1,7 +1,25 @@
 import { expect, test } from "@playwright/test";
 
 import { app } from "../src/app.config";
-import { addUser, collectErrors, signedInPage } from "./fixtures";
+import { addUser, call, collectErrors, signedInPage } from "./fixtures";
+
+test("a signed-out visitor sees the home page with a sign-in link", async ({
+	page,
+}) => {
+	const errors = collectErrors(page);
+	await addUser("newcomer@example.com", [app.usersGroup]);
+	await call("/login-as", { username: "newcomer@example.com" });
+	const home = await page.goto("/");
+	expect(home?.status()).toBe(200);
+	await expect(
+		page.getByRole("heading", { name: app.displayName }),
+	).toBeVisible();
+	const signIn = page.getByRole("link", { name: "Sign in" });
+	await expect(signIn).toHaveAttribute("href", "/api/auth/start?return=%2F");
+	await signIn.click();
+	await expect(page.getByTestId("username")).toHaveText("newcomer@example.com");
+	expect(errors).toEqual([]);
+});
 
 test("a member signs in through the provider and sees the list", async ({
 	browser,

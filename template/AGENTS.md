@@ -40,10 +40,12 @@ are, except where this section says otherwise.
   `createCloudAuth(() => ({ ...cloudAuthConfig(), isAdmin: (who) => ... }))`.
 - **Public or private.** A public App lets anyone open its pages; signed-out
   visitors have no user, so decide what they see. The home page
-  (`src/routes/index.tsx`) still sends signed-out visitors to sign in, even
-  in a public App: for pages anyone may read, change that route's loader to
-  allow a visitor with no user. A private App lets in only the people on its
-  allow list. Cloud sets this, not the code.
+  (`src/routes/index.tsx`) shows a signed-out visitor a landing page with a
+  "Sign in" link and answers 200; to show such a visitor more, extend that
+  page, and keep their data behind `requireMember`. A private App lets in
+  only the people on its allow list: its edge sends a signed-out page load
+  to sign-in before it reaches the App, so the landing page never shows
+  there. Cloud sets this, not the code.
 - **Two 401s.** A 401 with `sign_in_required` comes from Cloud's edge (a
   private App and no sign-in); a 401 with `unauthorized` comes from this
   app's own code (`requireMember` with no user).

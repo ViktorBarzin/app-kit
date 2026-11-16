@@ -22,8 +22,8 @@ async function call(path: string, body: Record<string, unknown> = {}) {
 }
 
 /**
- * A fresh browser context that the edge signs in as `email` on its first
- * visit. `streams` collects any request the page makes to /api/events.
+ * A fresh browser context that the edge signs in as `email`, then sends to
+ * `path`. `streams` collects any request the page makes to /api/events.
  */
 async function visitAs(
 	browser: Browser,
@@ -38,11 +38,11 @@ async function visitAs(
 				streams.push(request.url());
 		});
 	await call("/login-as", { email });
-	await page.goto(path);
+	await page.goto(`/oauth2/start?rd=${encodeURIComponent(path)}`);
 	return page;
 }
 
-test("a signed-out visitor goes through the edge's sign-in and comes back", async ({
+test("a signed-out visitor sees the home page, signs in through the edge and comes back", async ({
 	browser,
 }) => {
 	const page = await (await browser.newContext()).newPage();
@@ -54,7 +54,13 @@ test("a signed-out visitor goes through the edge's sign-in and comes back", asyn
 			signIns.push(`${url.pathname}${url.search}`);
 	});
 	await call("/login-as", { email: "visitor@example.com" });
-	await page.goto("/");
+	const home = await page.goto("/");
+	expect(home?.status()).toBe(200);
+	await expect(
+		page.getByRole("heading", { name: app.displayName }),
+	).toBeVisible();
+	expect(signIns).toEqual([]);
+	await page.getByRole("link", { name: "Sign in" }).click();
 	await expect(page.getByTestId("username")).toHaveText("visitor");
 	expect(signIns).toEqual(["/oauth2/start?rd=%2F"]);
 	expect(errors).toEqual([]);
@@ -67,11 +73,13 @@ test("sign-out goes through the edge and signs the visitor out", async ({
 	await expect(page.getByTestId("username")).toHaveText("leaver");
 	await call("/login-as", { email: null });
 	await page.getByRole("link", { name: "Sign out" }).click();
-	// Back on the home page, signed out: the app sends the browser to sign-in.
-	await expect(
-		page.getByRole("heading", { name: "Sign-in page" }),
-	).toBeVisible();
-	expect(new URL(page.url()).pathname).toBe("/oauth2/start");
+	// Back on the home page, signed out: it offers sign-in again.
+	await expect(page.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+		"href",
+		"/oauth2/start?rd=%2F",
+	);
+	await expect(page.getByTestId("username")).toHaveCount(0);
+	expect(new URL(page.url()).pathname).toBe("/");
 });
 
 test("the owner has the admin page; anyone else is refused", async ({
