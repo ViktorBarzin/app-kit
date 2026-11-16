@@ -42,6 +42,12 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
   its Deploys (started, live, failed), restarts, suspends, skipped commits,
   applies and secret changes that touched it, and when it started crashing,
   failed its health check or recovered.
+- `cloud notifications` lists what Cloud told you: a Deploy failed or went
+  live, an App turned unhealthy or recovered, a cron run failed, a Postgres
+  reached 80% of its disk. `cloud notifications channels add email
+  <address>` or `add webhook <url>` sends them on by email or as a
+  Standard Webhooks POST signed with a `whsec_` secret shown once
+  (`cloud help notifications`).
 - A commit message with `[skip cloud]` makes no Deploy, and
   `autoDeploy: false` in the Project File stops push Deploys.
 - `cloud deploy <project> <app> [--commit <sha>]` deploys by hand, `cloud

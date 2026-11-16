@@ -100,7 +100,10 @@ are, except where this section says otherwise.
   free of database calls, so a slow database never restarts a working
   App. `cloud events <project> <app>` lists when the App crashed (with its
   exit code, or `OOMKilled`), failed the check, or recovered;
-  `cloud projects` names an App that is crashing now.
+  `cloud projects` names an App that is crashing now. To hear about it by
+  email or signed webhook, add a channel:
+  `cloud notifications channels add email <address>` or
+  `... add webhook <url>` (`cloud help notifications`).
 - **Network and limits.** No email from the app: Cloud blocks TCP 25,
   465, 587 and 2525. The app reaches the internet over IPv4 only, from one
   shared address (`cloud help apps`). A request has 125 seconds to start
