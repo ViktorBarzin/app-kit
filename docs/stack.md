@@ -117,19 +117,21 @@ flowchart LR
   sign-in first, so it never reaches the App.
 - **Connections.** Cloud sets `CLOUD_DATABASE_POOL_SIZE`, the pool each
   pod may open, and the pod adds 1 `LISTEN` connection. Cloud counts every
-  process on the database at its peak: each App instance and the one extra
-  instance a rollout starts, `migrate` (1, inside that extra instance), each
-  worker (1), each cron run (1). The pool takes what is left, split across
-  the instances, at most 4. `cloud plan` refuses a Project File whose
-  processes need more than the Size gives and names the Size to pick
-  (`cloud help limits`).
+  process on the database at its peak: each App instance twice, since
+  during a rollout the old pods keep their connections until they stop;
+  `migrate` 1, inside a new pod's share; and when you add them, each
+  worker 1 and each cron run 1. The pool takes what is left, split across
+  the App pods, at least 1 and at most 4. `cloud plan` refuses a Project
+  File whose processes need more than the Size gives and names the Size
+  to pick (`cloud help limits`).
 
-| Size | Limit | One App, 1 instance | App with 2 instances, a worker and a cron |
-|---|---|---|---|
-| nano | 4 | pool 1 + LISTEN | refused: pick small |
-| small | 8 | pool 3 + LISTEN | pool 1 + LISTEN per instance |
-| medium | 16 | pool 4 + LISTEN | pool 3 + LISTEN per instance |
+| Size | Limit | App, 1 instance | App, 2 instances | App, 1 instance, a worker and a cron | App, 2 instances, a worker and a cron |
+|---|---|---|---|---|---|
+| nano | 4 | pool 1 | refused: small | refused: small | refused: medium |
+| small | 8 | pool 3 | pool 1 | pool 2 | refused: medium |
+| medium | 16 | pool 4 | pool 3 | pool 4 | pool 2 |
 
+  Each pool is per App pod, with 1 `LISTEN` on top.
   A pod on an older `@viktorbarzin/pg` reads `CLOUD_DATABASE_CONNECTION_LIMIT`
   and uses half of it, which fits only an App with 1 instance.
 
