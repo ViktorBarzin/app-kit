@@ -21,7 +21,7 @@ handlers (`src/fixture/nitro-config.ts`), matched before TanStack Start.
 | `GET /ws` | WebSocket: sends every text frame back. |
 | `GET /sse?every=N` | Server-Sent Events: one `data:` event at once, then one every N seconds (default 5). |
 | `GET /egress-ip` | `{ip, source}`: the address a public IP echo service sees. |
-| `GET /tcp?host=H&port=P` | A TCP connect with a 10 s timeout: `{connected, error, ms}`. Only `smtp.gmail.com` on ports 25, 465, 587, 2525 and 443, and `www.google.com` on 443, the SMTP test's control. |
+| `GET /tcp?host=H&port=P` | A TCP connect with a 9 s timeout, under the SMTP test's 10 s: `{connected, error, ms}`. Only `smtp.gmail.com` on ports 25, 465, 587, 2525 and 443, and `www.google.com` on 443, the SMTP test's control. |
 | `GET /fetch?url=U` | A GET with a 10 s timeout: `{connected, status, error, ms}`, never the body. Only the App's own origins (`CLOUD_PUBLIC_URL`, each `CLOUD_URL_<NAME>`, the comma-separated `FIXTURE_FETCH_ALLOW`) and https hosts under viktorbarzin.me. |
 | `GET /build-assets` | `{assets}`: the client build's JS files, for the build env test. |
 | `/enqueue`, `/kv-selftest`, `/upload`, `/files/:key`, `/probe/pg`, `/probe/kv`, `/probe/s3` | 501 `{"error":{"code":"not_in_this_batch"}}` until a later batch of the parity work. |

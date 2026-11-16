@@ -10,8 +10,11 @@ import { fetchAllowed, ownOrigins, slowSeconds, tcpAllowed } from "./guard";
 /** The exit code /crash exits with. */
 export const CRASH_EXIT_CODE = 42;
 
-/** /tcp gives up after this long. */
-export const TCP_TIMEOUT_MS = 10_000;
+/**
+ * /tcp gives up after this long: under the 10 s in which Cloud's SMTP test
+ * wants a blocked port to fail, so a dropped connection still fails in time.
+ */
+export const TCP_TIMEOUT_MS = 9_000;
 
 /** /fetch gives up after this long. */
 export const FETCH_TIMEOUT_MS = 10_000;
