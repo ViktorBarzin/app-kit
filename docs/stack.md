@@ -133,7 +133,9 @@ flowchart LR
   "Sign in" link (200). A private App's edge sends a signed-out page load to
   sign-in first, so it never reaches the App.
 - **Internal Apps.** With `access: internal` an App has no edge and no
-  address outside Cloud: its https address answers 404. Only the Apps of
+  address outside Cloud: its https address answers 404 from the internet
+  and has no DNS record on the home network, while Cloud holds the name.
+  Only the Apps of
   the same Project that list it in `connects` reach it, at the URL in their
   `CLOUD_URL_<NAME>` (`http://app-<name>.p-<project>.svc.cluster.local`).
   Those calls carry no `X-Cloud-User-*` headers and no edge secret, so
