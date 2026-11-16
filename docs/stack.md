@@ -1,9 +1,183 @@
 # App stack
 
 This is the setup every new first-party app uses. An app is one TypeScript
-codebase for the UI and the backend, deployed as one pod. It signs people in
-through Authentik and stores its data in its own database on the shared
-Postgres cluster.
+codebase for the UI and the backend, deployed as one pod, with its data in
+its own Postgres database.
+
+There are two ways to run it. On Cloud you ship it with the `cloud` CLI and
+no infra steps; start with "Running on Cloud" below. The infra path, in
+"Starting a new app" and "Build and deploy", is for infra admins. The
+template, its packages and its code rules are the same on both.
+
+## Running on Cloud
+
+The template runs on Cloud (`viktor/cloud`) with no infra steps. You need a
+Cloud account: an Operator makes one in one step with `cloud users add`.
+The `cloud` CLI is on the devvm for every user.
+
+```sh
+cloud login                                  # once, with a device code
+cloud new <app> --access private --yes       # or --access public
+```
+
+`cloud new` copies `viktor/app-template` into your own Forgejo account,
+creates a Project with the app and its own nano Postgres, pushes the first
+commit, applies it and waits until the apply ends. A failed apply exits 7
+with its reason; `--no-wait` returns at once. It uses the Forgejo login git
+holds: an access token with the `write:repository` and `write:user` scopes
+in git's credentials.
+
+Each later push to `master` builds and deploys. `cloud new` adds a Forgejo
+push webhook to the repo, so a push deploys within seconds; `cloud webhook
+<project> <app>` adds it to an older App.
+
+- `cloud deploys <project> <app>` lists the Deploys with what started each
+  one and how long it took, and says what holds one up ("Build logs"
+  below).
+- `cloud logs <project> <app> [-f]` prints the App's newest log lines.
+  `--grep <text>` (plain text, case-sensitive), `--level
+  debug|info|warn|error|fatal`, `--instance <pod>`, `--deploy <version>`
+  and `--since <time>` filter them, with `-f` too.
+- `cloud events <project> <app>` lists the App's history in time order:
+  its Deploys (started, live, failed), restarts, suspends, skipped commits,
+  applies and secret changes that touched it, and when it started crashing,
+  failed its health check or recovered.
+- A commit message with `[skip cloud]` makes no Deploy, and
+  `autoDeploy: false` in the Project File stops push Deploys.
+- `cloud deploy <project> <app> [--commit <sha>]` deploys by hand, `cloud
+  deploy cancel` stops a build, and `cloud deploy-hook` prints a secret URL
+  that deploys on a POST.
+- `cloud restart <project> <app>` restarts the running version with no
+  build. `cloud suspend` stops the App and takes its CPU and memory out of
+  your Budget until `cloud resume`. `cloud maintenance <project> <app> on`
+  answers 503 with a maintenance page while the App keeps running.
+- A failed apply is retried by applying the Project File again, even
+  unchanged, not by deleting the Project: a deleted Project's name is never
+  given out again.
+- For a private app, `cloud invite <project> <app> <email>` adds a person to
+  its allow list and prints a one-time sign-up code for someone with no
+  homelab account.
+
+The repo is private unless you pass `--public-repo`. Cloud builds a private
+repo only for the Forgejo account linked to your sign-in, so `cloud new`
+checks that first and stops, with nothing made, when no account is linked.
+Cloud reads and builds a private repo as its own Forgejo account
+`cloud-bot`, which sees a private repo only as a collaborator: `cloud new`
+adds it with Read before the first push, then waits for Cloud's first check
+of the branch, which exits 8 with the reason when Cloud cannot read it. A
+private repo you make by hand needs `cloud-bot` added as a Read collaborator
+(the repo's Settings, Collaborators).
+
+`cloud --help` lists the other commands.
+
+Secrets never go in the repo or the Project File. Set one from stdin, never
+as an argument, and the App restarts with it in about a minute:
+
+```sh
+printf %s "$STRIPE_KEY" | cloud secrets set <project> <app> STRIPE_KEY
+cloud secrets import <project> <app> < .env    # every KEY=value as one change
+cloud secrets list <project> <app>             # names and status, never values
+```
+
+Agents on MCP use `set_secret`, `list_secrets` and `unset_secret`. For a
+value no person needs to know, such as a session or signing key, let Cloud
+make it in the App's `env` in the Project File:
+
+```yaml
+    env:
+      SESSION_SECRET: {generate: true}
+```
+
+Cloud makes 32 random bytes (base64url) once and keeps the same value on
+every apply; no command, page or export shows it, and removing the line
+deletes it. For CI, `cloud tokens create --expires 30d` prints an Access
+Token for `CLOUD_TOKEN`; every token expires, 90 days at most.
+
+Cloud sets `CLOUD_EDGE_SECRET`, and the app then runs in cloud mode:
+
+```mermaid
+flowchart LR
+  B[Browser] --> E["App's edge, Caddy"]
+  E -- "/oauth2/auth subrequest" --> O[oauth2-proxy]
+  E -- "/oauth2/*" --> O
+  E -- "X-Cloud-User-* + X-Cloud-Edge-Secret" --> A["App, createCloudAuth"]
+  A --> PG[("Project Postgres<br/>connection limit 2, 4 or 8")]
+```
+
+- **Identity.** The edge signs people in and sends `X-Cloud-User-Id`,
+  `-Email` and `-Username`. `createCloudAuth` in `@viktorbarzin/auth` reads
+  them only with the correct edge secret; else the request is anonymous. The
+  `CLOUD_OWNER_EMAIL` is the admin. There are no access requests, so the
+  `/pending` and `/admin/requests` pages redirect. The edge decides who may
+  use a private app. Sign-in and sign-out links are `/oauth2/start?rd=` and
+  `/oauth2/sign_out?rd=`. Bearer tokens are not accepted.
+- **Connections.** A pod uses `floor(CLOUD_DATABASE_CONNECTION_LIMIT / 2)`,
+  because a rollout overlaps two pods. Realtime needs 2 of them; on a nano
+  database (limit 2) it is off, and lists refetch every `app.pollMs`.
+
+| Size | Limit | Pool | LISTEN |
+|---|---|---|---|
+| nano | 2 | 1 | off |
+| small | 4 | 1 | 1 |
+| medium | 8 | 3 | 1 |
+
+- **Migrations** run from `drizzle/` before each deploy, in an init
+  container with the args `["entrypoints/migrate.js"]`.
+- **Health check.** `cloud new` sets `healthCheckPath: /healthz`, which
+  the template's `/healthz` answers with a static ok. A Deploy goes live
+  only once that path answers 2xx, so a version that cannot serve fails
+  its Deploy as `health_check` and the version before keeps serving. On a
+  live app, Kubernetes restarts an instance that fails the check for
+  60 s, and after that restart the instance has 5 min to answer the first
+  time. A new version has 3 min from its start, or its Deploy fails. Keep
+  the route free of database calls. An app made before this setting existed adds
+  `healthCheckPath: /healthz` to its service in the Project File
+  (`cloud file export`, edit, `cloud apply`). `cloud events <project>
+  <app>` lists crashes (with the exit code, or `OOMKilled`), failed checks
+  and recoveries; `cloud projects` names an app that is crashing now.
+- **Env at build time.** Plain env reaches the build; secrets never do.
+  Cloud's builder passes the App's plain `env` as one build argument,
+  `CLOUD_BUILD_ENV` (base64 of `export NAME='value'` lines), and as
+  `--build-arg NAME=value` for each name. The template's Dockerfile runs
+  `eval` on it before `bun run build`, so `vite build` inlines
+  `import.meta.env.VITE_*` into the page's JS, where anyone can read it. A
+  repo with no Dockerfile gets the same names in its Railpack build. App
+  secrets, generated ones (`{generate: true}`) too, reach only the running
+  pod. Left out of the build, though not out of the pod: `PATH`, `LD_*`,
+  `DOCKER_*`, `BUILDX_*`, `BUILDKIT_*`, `HTTP_PROXY`, `HTTPS_PROXY`,
+  `NO_PROXY`, `ALL_PROXY`, `NODE_OPTIONS`, `BUN_*` and
+  `RAILPACK_CONFIG_FILE`, in any case; they would steer the builder's own
+  tools.
+- **Build logs.** `cloud deploys <project> <app>` shows a failed Deploy's
+  reason and the last 20 lines of its build, and `cloud deploys log
+  <project> <app> <deploy-id>` prints the full build output. The builder
+  repo is public, so its run log shows step names only; the output is
+  sealed to Cloud's key.
+- **Background work.** A Project holds Apps and Postgres databases only,
+  so pg-boss workers and CronJobs (see "Components") have no place to run
+  on Cloud yet. Each App runs one web process in one pod.
+- **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
+- **Network.** The app reaches the internet over IPv4 only, from one
+  address every App shares (`cloud help apps` prints it after
+  `cloud login`). It cannot send email directly: Cloud blocks TCP 25, 465,
+  587 and 2525.
+- **Limits.** Cloudflare gives a request 125 seconds to start its answer
+  and takes a body of at most 100 MiB. A stream needs a message at least
+  every 30 seconds (`cloud help limits`).
+- **Staging.** `cloud file export <p> --rename <p>-staging > s.yaml`, then
+  `cloud apply s.yaml`, makes a copy with renamed Apps (`cloud help
+  environments`).
+
+The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
+`CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS`
+(`public` or `private`). `src/server/env.server.ts` reads the first four;
+`CLOUD_ACCESS` is the edge's setting, and the app does not read it.
+
+## The template and the infra path
+
+Everything below describes the template, which is the same on Cloud, and the
+infra path. On the infra path an app signs people in through Authentik and
+stores its data on the shared Postgres cluster.
 
 ```mermaid
 flowchart TD
@@ -85,6 +259,9 @@ The packages do not depend on TanStack Start. They take a `Request` and return
 a `Response` or data, and the app wires them into its middleware and routes.
 
 ## Starting a new app
+
+These are the infra steps, for infra admins. On Cloud, `cloud new` does all
+of them ("Running on Cloud").
 
 1. On Forgejo, create the repo from `viktor/app-template` under `viktor`,
    named after the app's slug. Keep it public so the cluster can pull its
@@ -274,6 +451,9 @@ sequenceDiagram
 
 ## Build and deploy
 
+This is the infra path. On Cloud, Cloud builds each push and rolls it out
+("Running on Cloud").
+
 ```mermaid
 flowchart TD
   P[push to master on Forgejo] --> GH[GitHub mirror]
@@ -295,137 +475,3 @@ flowchart TD
   The app's tests run before the deploy job and stop a breaking bump.
 - The Bun version in `packageManager`, the `oven/bun` base image and CI's
   `setup-bun` move together in one commit.
-
-## Running on Cloud
-
-The same template runs on Cloud (`viktor/cloud`) with no infra steps.
-Start an app there with the `cloud` CLI, which the devvm has for every user.
-`cloud login` signs in once with a device code. Then `cloud new <app>
---access private|public --yes` copies `viktor/app-template` into your own
-Forgejo account, creates a Project with the app and its own nano Postgres,
-pushes the first commit, applies it and waits until the apply ends (a
-failed apply exits 7 with its reason; `--no-wait` returns at once). Each
-later push to `master` builds and deploys, and `cloud deploys <project>
-<app>` lists the Deploys with what started each one and how long it took,
-and says what holds one up. `cloud new` also adds a Forgejo push webhook
-to the repo, so a push deploys within seconds; `cloud webhook <project>
-<app>` adds it to an older App. A commit message with `[skip cloud]` makes
-no Deploy, `autoDeploy: false` in the Project File stops push Deploys,
-`cloud deploy <project> <app> [--commit <sha>]` deploys by hand, `cloud
-deploy cancel` stops a build, and `cloud deploy-hook` prints a secret URL
-that deploys on a POST. `cloud new` uses the
-Forgejo login git holds: an access token with the `write:repository` and
-`write:user` scopes in git's credentials. The repo is private unless you
-pass `--public-repo`, and Cloud builds a private repo only for the Forgejo
-account linked to your sign-in, so `cloud new` checks that first and stops,
-with nothing made, when no account is linked. Cloud reads and builds a
-private repo as its own Forgejo account `cloud-bot`, which sees a private
-repo only as a collaborator: `cloud new` adds it with Read before the first
-push and then waits for Cloud's first check of the branch, which exits 8
-with the reason when Cloud cannot read it. A private repo you make by hand
-needs `cloud-bot` added as a Read collaborator (the repo's Settings,
-Collaborators). A failed apply is retried by
-applying the Project File again, even unchanged, not by deleting the
-Project: a deleted Project's name is never given out again.
-For a private app, `cloud invite <project> <app> <email>` adds a person to
-its allow list and prints a one-time sign-up code for someone with no
-homelab account. `cloud --help` lists the other commands.
-
-Secrets never go in the repo or the Project File. Set one from stdin, never
-as an argument, and the App restarts with it in about a minute:
-
-```sh
-printf %s "$STRIPE_KEY" | cloud secrets set <project> <app> STRIPE_KEY
-cloud secrets import <project> <app> < .env    # every KEY=value as one change
-cloud secrets list <project> <app>             # names and status, never values
-```
-
-Agents on MCP use `set_secret`, `list_secrets` and `unset_secret`. For a
-value no person needs to know, such as a session or signing key, let Cloud
-make it in the App's `env` in the Project File:
-
-```yaml
-    env:
-      SESSION_SECRET: {generate: true}
-```
-
-Cloud makes 32 random bytes (base64url) once and keeps the same value on
-every apply; no command, page or export shows it, and removing the line
-deletes it. For CI, `cloud tokens create --expires 30d` prints an Access
-Token for `CLOUD_TOKEN`; every token expires, 90 days at most.
-
-Cloud sets `CLOUD_EDGE_SECRET`, and the app then runs in cloud mode:
-
-```mermaid
-flowchart LR
-  B[Browser] --> E["App's edge, Caddy"]
-  E -- "/oauth2/auth subrequest" --> O[oauth2-proxy]
-  E -- "/oauth2/*" --> O
-  E -- "X-Cloud-User-* + X-Cloud-Edge-Secret" --> A["App, createCloudAuth"]
-  A --> PG[("Project Postgres<br/>connection limit 2, 4 or 8")]
-```
-
-- **Identity.** The edge signs people in and sends `X-Cloud-User-Id`,
-  `-Email` and `-Username`. `createCloudAuth` in `@viktorbarzin/auth` reads
-  them only with the correct edge secret; else the request is anonymous. The
-  `CLOUD_OWNER_EMAIL` is the admin. There are no access requests, so the
-  `/pending` and `/admin/requests` pages redirect. The edge decides who may
-  use a private app. Sign-in and sign-out links are `/oauth2/start?rd=` and
-  `/oauth2/sign_out?rd=`. Bearer tokens are not accepted.
-- **Connections.** A pod uses `floor(CLOUD_DATABASE_CONNECTION_LIMIT / 2)`,
-  because a rollout overlaps two pods. Realtime needs 2 of them; on a nano
-  database (limit 2) it is off, and lists refetch every `app.pollMs`.
-
-| Size | Limit | Pool | LISTEN |
-|---|---|---|---|
-| nano | 2 | 1 | off |
-| small | 4 | 1 | 1 |
-| medium | 8 | 3 | 1 |
-
-- **Migrations** run from `drizzle/` before each deploy, in an init
-  container with the args `["entrypoints/migrate.js"]`.
-- **Health check.** `cloud new` sets `healthCheckPath: /healthz`, which
-  the template's `/healthz` answers with a static ok. A Deploy goes live
-  only once that path answers 2xx, so a version that cannot serve fails
-  its Deploy as `health_check` and the version before keeps serving. On a
-  live app, Kubernetes restarts an instance that fails the check for
-  60 s, and after that restart the instance has 5 min to answer the first
-  time. A new version has 3 min from its start, or its Deploy fails. Keep
-  the route free of database calls. An app made before this setting existed adds
-  `healthCheckPath: /healthz` to its service in the Project File
-  (`cloud file export`, edit, `cloud apply`). `cloud events <project>
-  <app>` lists crashes (with the exit code, or `OOMKilled`), failed checks
-  and recoveries; `cloud projects` names an app that is crashing now.
-- **Env at build time.** Plain env reaches the build; secrets never do.
-  Cloud's builder passes the App's plain `env` as one build argument,
-  `CLOUD_BUILD_ENV` (base64 of `export NAME='value'` lines), and as
-  `--build-arg NAME=value` for each name. The template's Dockerfile runs
-  `eval` on it before `bun run build`, so `vite build` inlines
-  `import.meta.env.VITE_*` into the page's JS, where anyone can read it. A
-  repo with no Dockerfile gets the same names in its Railpack build. App
-  secrets, generated ones (`{generate: true}`) too, reach only the running
-  pod. Left out of the build, though not out of the pod: `PATH`, `LD_*`,
-  `DOCKER_*`, `BUILDX_*`, `BUILDKIT_*`, `HTTP_PROXY`, `HTTPS_PROXY`,
-  `NO_PROXY`, `ALL_PROXY`, `NODE_OPTIONS`, `BUN_*` and
-  `RAILPACK_CONFIG_FILE`, in any case; they would steer the builder's own
-  tools.
-- **Build logs.** `cloud deploys <project> <app>` shows a failed Deploy's
-  reason and the last 20 lines of its build, and `cloud deploys log
-  <project> <app> <deploy-id>` prints the full build output. The builder
-  repo is public, so its run log shows step names only; the output is
-  sealed to Cloud's key.
-- **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
-- **Network.** The app reaches the internet over IPv4 only, from one
-  address every App shares (`cloud help apps` prints it). It cannot send
-  email directly: Cloud blocks TCP 25, 465, 587 and 2525.
-- **Limits.** Cloudflare gives a request 125 seconds to start its answer
-  and takes a body of at most 100 MiB. A stream needs a message at least
-  every 30 seconds (`cloud help limits`).
-- **Staging.** `cloud file export <p> --rename <p>-staging > s.yaml`, then
-  `cloud apply s.yaml`, makes a copy with renamed Apps (`cloud help
-  environments`).
-
-The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
-`CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS`
-(`public` or `private`). `src/server/env.server.ts` reads the first four;
-`CLOUD_ACCESS` is the edge's setting, and the app does not read it.
