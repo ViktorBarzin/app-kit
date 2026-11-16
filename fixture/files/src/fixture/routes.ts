@@ -17,10 +17,13 @@ import {
 export const CRASH_EXIT_CODE = 42;
 
 /**
- * /tcp gives up after this long: under the 10 s in which Cloud's SMTP test
- * wants a blocked port to fail, so a dropped connection still fails in time.
+ * /tcp gives up after this long: well under the 10 s in which Cloud's SMTP
+ * test wants a blocked port to fail. A blocked port drops the packets, so
+ * the attempt only ends at this timeout; through the public edge a probe
+ * of a blocked port has been seen to take twice as long as the attempt, so
+ * 4 s keeps the whole call under 10 s. An allowed port connects in ms.
  */
-export const TCP_TIMEOUT_MS = 9_000;
+export const TCP_TIMEOUT_MS = 4_000;
 
 /** /fetch gives up after this long. */
 export const FETCH_TIMEOUT_MS = 10_000;

@@ -235,7 +235,7 @@ describe("/tcp", () => {
 			}),
 		);
 		expect(response.status).toBe(200);
-		expect(seen).toEqual(["smtp.gmail.com:443:9000"]);
+		expect(seen).toEqual(["smtp.gmail.com:443:4000"]);
 		const body = (await response.json()) as { connected: boolean };
 		expect(body.connected).toBe(true);
 	});
