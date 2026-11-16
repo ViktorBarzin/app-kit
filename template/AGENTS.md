@@ -74,13 +74,14 @@ are, except where this section says otherwise.
   build, so `vite build` inlines `import.meta.env.VITE_*` values into the
   page's JS (for example `env: {VITE_GREETING: hi}`). Anyone who opens the
   page can read those, so never put a secret in a `VITE_*` name. Secrets
-  (`cloud secrets`) reach the running App only. The `Dockerfile` reads the
+  (`cloud secrets`, and `{generate: true}` values) reach the running App
+  only. The `Dockerfile` reads the
   build env from `CLOUD_BUILD_ENV`; keep that line. A Dockerfile of your
   own gets each plain value where it declares `ARG NAME`. Cloud leaves
   these names out of the build, though the App still gets them at run
   time: `PATH`, `LD_*`, `DOCKER_*`, `BUILDX_*`, `BUILDKIT_*`, the proxy
   names (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `ALL_PROXY`),
-  `NODE_OPTIONS` and `BUN_*`, in any case.
+  `NODE_OPTIONS`, `BUN_*` and `RAILPACK_CONFIG_FILE`, in any case.
 - **Build logs.** `cloud deploys <project> <app>` shows why a Deploy
   failed and the last 20 lines of its build; `cloud deploys log <project>
   <app> <deploy-id>` prints the whole build.
