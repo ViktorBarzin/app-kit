@@ -80,6 +80,11 @@ are, except where this section says otherwise.
   App. `cloud events <project> <app>` lists when the App crashed (with its
   exit code, or `OOMKilled`), failed the check, or recovered;
   `cloud projects` names an App that is crashing now.
+- **Network and limits.** No email from the app: Cloud blocks TCP 25,
+  465, 587 and 2525. The app reaches the internet over IPv4 only, from one
+  shared address (`cloud help apps`). A request has 125 seconds to start
+  its answer and a body of at most 100 MiB; a stream needs a message every
+  30 seconds (`cloud help limits`).
 - **Connections.** The pod takes half the database's connection limit: the
   pool, plus one LISTEN connection when realtime is on. On a nano database realtime is off and lists refetch every `app.pollMs`;
   invalidate the query after a write, as `routes/index.tsx` does.

@@ -397,6 +397,15 @@ flowchart LR
   <app>` lists crashes (with the exit code, or `OOMKilled`), failed checks
   and recoveries; `cloud projects` names an app that is crashing now.
 - **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
+- **Network.** The app reaches the internet over IPv4 only, from one
+  address every App shares (`cloud help apps` prints it). It cannot send
+  email directly: Cloud blocks TCP 25, 465, 587 and 2525.
+- **Limits.** Cloudflare gives a request 125 seconds to start its answer
+  and takes a body of at most 100 MiB. A stream needs a message at least
+  every 30 seconds (`cloud help limits`).
+- **Staging.** `cloud file export <p> --rename <p>-staging > s.yaml`, then
+  `cloud apply s.yaml`, makes a copy with renamed Apps (`cloud help
+  environments`).
 
 The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
 `CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS`
