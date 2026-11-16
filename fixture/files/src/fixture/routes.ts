@@ -12,7 +12,14 @@ import {
 	slowSeconds,
 	tcpAllowed,
 } from "./guard";
-import { SINK_NAME, type SinkStore, sinkEnabled, sinkStore } from "./sink";
+import {
+	readLimited,
+	SINK_MAX_BODY,
+	SINK_NAME,
+	type SinkStore,
+	sinkEnabled,
+	sinkStore,
+} from "./sink";
 
 /** The exit code /crash exits with. */
 export const CRASH_EXIT_CODE = 42;
@@ -41,6 +48,13 @@ const LOG_LEVELS = new Set(["error", "warn", "info"]);
 /** The most MiB one /fill call writes. */
 export const FILL_MAX_MIB = 256;
 
+/**
+ * The database size /fill stops at, MiB, unless FIXTURE_FILL_MAX_MIB says
+ * otherwise: 90% of the nano Size's 1 GiB disk. The fixture cannot read its
+ * Size, so an App on a bigger one sets the variable.
+ */
+export const FILL_DEFAULT_MAX_MIB = 921;
+
 export const NOT_IN_THIS_BATCH = {
 	error: {
 		code: "not_in_this_batch",
@@ -53,6 +67,16 @@ export interface ItemRow {
 	id: string;
 	title: string;
 	createdAt: string;
+}
+
+/** What /fill does in the App's database. */
+export interface FillDb {
+	/** Writes `mib` MiB of random bytes to table fixture_fill. */
+	write(mib: number): Promise<void>;
+	/** Drops table fixture_fill. */
+	clear(): Promise<void>;
+	/** The database's size now, MiB (pg_database_size). */
+	databaseMib(): Promise<number>;
 }
 
 export interface FixtureDeps {
@@ -84,10 +108,8 @@ export interface FixtureDeps {
 	assets: () => Promise<string[]>;
 	/** Queues a pg-boss job on queue `fixture` and returns its id; null without a database. */
 	enqueue: (() => Promise<string>) | null;
-	/** Writes `mib` MiB of random bytes to table fixture_fill; null without a database. */
-	fill: ((mib: number) => Promise<{ tableMib: number }>) | null;
-	/** Drops table fixture_fill; null without a database. */
-	clearFill: (() => Promise<void>) | null;
+	/** /fill's database work; null without a database. */
+	fill: FillDb | null;
 	/** The webhook sink's store; the process's own unless a test sets one. */
 	sink?: SinkStore;
 }
@@ -345,12 +367,55 @@ async function fetchStatus(deps: FixtureDeps, url: URL): Promise<Response> {
 	}
 }
 
-/** /fill?mb=N writes N MiB (1 to FILL_MAX_MIB); /fill?clear=1 drops the table. */
+/** Whether /fill is on (FIXTURE_FILL=on), and the database size it stops at. */
+export function fillSettings(env: Record<string, string | undefined>): {
+	on: boolean;
+	maxMib: number;
+} {
+	const raw = env.FIXTURE_FILL_MAX_MIB?.trim() ?? "";
+	return {
+		on: env.FIXTURE_FILL?.trim() === "on",
+		maxMib: /^\d+$/.test(raw) ? Number(raw) : FILL_DEFAULT_MAX_MIB,
+	};
+}
+
+/** One /fill at a time per process, on globalThis as fixtureState is. */
+function fillLock(): { busy: boolean } {
+	const key = Symbol.for("app-template-fixture:fill");
+	const holder = globalThis as unknown as Record<
+		symbol,
+		{ busy: boolean } | undefined
+	>;
+	let lock = holder[key];
+	if (!lock) {
+		lock = { busy: false };
+		holder[key] = lock;
+	}
+	return lock;
+}
+
+/**
+ * Only with FIXTURE_FILL=on: /fill?mb=N writes N MiB (1 to FILL_MAX_MIB),
+ * one call at a time, and refuses a write that would take the database past
+ * its stop size; /fill?clear=1 drops the table.
+ */
 async function fill(deps: FixtureDeps, url: URL): Promise<Response> {
-	if (!deps.fill || !deps.clearFill)
+	const settings = fillSettings(deps.env);
+	if (!settings.on)
+		return fail(404, "not_found", "/fill is off: set FIXTURE_FILL=on");
+	if (!deps.fill)
 		return fail(503, "no_database", "the App has no DATABASE_URL");
+	const lock = fillLock();
+	if (lock.busy)
+		return fail(409, "fill_busy", "another /fill is running; try again");
+	const db = deps.fill;
 	if (url.searchParams.get("clear") === "1") {
-		await deps.clearFill();
+		lock.busy = true;
+		try {
+			await db.clear();
+		} finally {
+			lock.busy = false;
+		}
 		return json({ cleared: true });
 	}
 	const mb = url.searchParams.get("mb") ?? "";
@@ -361,9 +426,22 @@ async function fill(deps: FixtureDeps, url: URL): Promise<Response> {
 			"bad_fill_request",
 			`mb must be a whole number from 1 to ${FILL_MAX_MIB}, or clear=1`,
 		);
-	const written = await deps.fill(mib);
-	deps.log(`fixture-fill ${mib} MiB, table ${written.tableMib} MiB`);
-	return json({ wroteMib: mib, tableMib: written.tableMib });
+	lock.busy = true;
+	try {
+		const before = await db.databaseMib();
+		if (before + mib > settings.maxMib)
+			return fail(
+				409,
+				"fill_limit",
+				`the database is ${before} MiB; ${mib} more would pass the ${settings.maxMib} MiB stop (FIXTURE_FILL_MAX_MIB)`,
+			);
+		await db.write(mib);
+		const after = await db.databaseMib();
+		deps.log(`fixture-fill ${mib} MiB, database ${after} MiB`);
+		return json({ wroteMib: mib, databaseMib: after, maxMib: settings.maxMib });
+	} finally {
+		lock.busy = false;
+	}
 }
 
 /** POST /sink/<name> keeps a delivery; GET /sink/<name>/inbox lists them. */
@@ -394,10 +472,17 @@ async function sink(
 			"method_not_allowed",
 			"send a delivery with POST; read it at /sink/<name>/inbox",
 		);
+	const body = await readLimited(request);
+	if (body === null)
+		return fail(
+			413,
+			"body_too_large",
+			`a delivery is at most ${SINK_MAX_BODY} bytes`,
+		);
 	const kept = store.record(name, {
 		method: request.method,
 		headers: request.headers,
-		body: await request.text(),
+		body,
 		at: new Date(),
 	});
 	return json({ stored: kept.n }, kept.answered);

@@ -2,7 +2,8 @@
  * Keeps a process's Postgres connections busy, for Cloud's connection test
  * (P49): with FIXTURE_PG_BUSY=<seconds> set, each of the process's pool
  * connections runs `select pg_sleep(<seconds>)` again and again, so the
- * App, its worker and its cron each hold every connection Cloud gives them.
+ * App, its worker and its cron each hold every connection Cloud gives them,
+ * with a short pause between queries so their own work still runs.
  * A query that fails is logged with Postgres's own message (so `too many
  * connections` shows in `cloud logs --grep`), and that loop waits 5 s.
  * Unset, nothing runs.
@@ -13,6 +14,13 @@ export const PG_BUSY_MAX_S = 60;
 
 /** How long a loop waits after a failed query. */
 export const PG_BUSY_RETRY_MS = 5_000;
+
+/**
+ * How long a loop waits between two queries. The pool keeps the connection
+ * open meanwhile, so Postgres still counts it; the pause lets the process's
+ * own queries (/items, /enqueue, pg-boss) take a turn on the pool.
+ */
+export const PG_BUSY_PAUSE_MS = 200;
 
 /** The seconds each busy query sleeps, or null when FIXTURE_PG_BUSY is unset or not 1-60. */
 export function pgBusySeconds(
@@ -79,6 +87,7 @@ export function startPgBusy(options: PgBusyOptions): PgBusy | null {
 		while (!stopped && now() < until) {
 			try {
 				await options.query(`select pg_sleep(${seconds})`);
+				await sleep(PG_BUSY_PAUSE_MS);
 			} catch (err) {
 				line("pg-busy-error", { connection: n, error: messageOf(err) });
 				await sleep(PG_BUSY_RETRY_MS);

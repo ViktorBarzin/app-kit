@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 
 import {
+	FILL_DEFAULT_MAX_MIB,
+	type FillDb,
 	type FixtureDeps,
 	fixtureHealthy,
 	fixtureState,
@@ -12,6 +14,20 @@ import {
 	serviceUrls,
 } from "./routes";
 import { SinkStore } from "./sink";
+
+/** A /fill database that starts at `startMib` and grows by what it writes. */
+function fakeFill(startMib = 0): FillDb {
+	let size = startMib;
+	return {
+		write: async (mib) => {
+			size += mib;
+		},
+		clear: async () => {
+			size = startMib;
+		},
+		databaseMib: async () => size,
+	};
+}
 
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 
@@ -64,8 +80,7 @@ function deps(overrides: Partial<FixtureDeps> = {}): FixtureDeps & {
 		allocate: () => {},
 		assets: async () => ["/assets/main-1.js"],
 		enqueue: async () => "0b6d3c1e-5f1a-4c55-9a43-3f1b2c4d5e6f",
-		fill: async (mib) => ({ tableMib: mib + 1 }),
-		clearFill: async () => {},
+		fill: fakeFill(),
 		sink: new SinkStore(),
 		exits,
 		slept,
@@ -399,25 +414,71 @@ describe("/info urls", () => {
 });
 
 describe("/fill", () => {
-	test("writes N MiB and answers the table's size", async () => {
-		const d = deps();
+	const on = (db: FillDb = fakeFill(), extra: Record<string, string> = {}) =>
+		deps({ env: { FIXTURE_FILL: "on", ...extra }, fill: db });
+
+	test("is 404 unless FIXTURE_FILL=on", async () => {
+		expect((await get("/fill?mb=1", deps())).status).toBe(404);
+	});
+
+	test("writes N MiB and answers the database's size", async () => {
+		const db = fakeFill(100);
+		const d = on(db);
 		const response = await get("/fill?mb=100", d);
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ wroteMib: 100, tableMib: 101 });
-		expect(d.logged).toEqual(["fixture-fill 100 MiB, table 101 MiB"]);
+		expect(await response.json()).toEqual({
+			wroteMib: 100,
+			databaseMib: 200,
+			maxMib: FILL_DEFAULT_MAX_MIB,
+		});
+		expect(d.logged).toEqual(["fixture-fill 100 MiB, database 200 MiB"]);
+	});
+
+	test("refuses a write past the stop size, which FIXTURE_FILL_MAX_MIB moves", async () => {
+		const full = await get("/fill?mb=200", on(fakeFill(800)));
+		expect(full.status).toBe(409);
+		expect(
+			((await full.json()) as { error: { code: string } }).error.code,
+		).toBe("fill_limit");
+		expect(
+			(
+				await get(
+					"/fill?mb=200",
+					on(fakeFill(800), { FIXTURE_FILL_MAX_MIB: "5000" }),
+				)
+			).status,
+		).toBe(200);
+	});
+
+	test("one fill at a time", async () => {
+		let release = () => {};
+		const slow: FillDb = {
+			...fakeFill(),
+			write: () =>
+				new Promise<void>((done) => {
+					release = done;
+				}),
+		};
+		const first = get("/fill?mb=1", on(slow));
+		await Bun.sleep(10);
+		const second = await get("/fill?mb=1", on(slow));
+		expect(second.status).toBe(409);
+		release();
+		expect((await first).status).toBe(200);
 	});
 
 	test("refuses 0, too much and junk", async () => {
 		for (const q of ["mb=0", "mb=257", "mb=x", ""])
-			expect((await get(`/fill?${q}`, deps())).status).toBe(400);
+			expect((await get(`/fill?${q}`, on())).status).toBe(400);
 	});
 
 	test("clear=1 drops the table", async () => {
 		let cleared = 0;
 		const response = await get(
 			"/fill?clear=1",
-			deps({
-				clearFill: async () => {
+			on({
+				...fakeFill(),
+				clear: async () => {
 					cleared += 1;
 				},
 			}),
@@ -428,7 +489,12 @@ describe("/fill", () => {
 
 	test("503 without a database", async () => {
 		expect(
-			(await get("/fill?mb=1", deps({ fill: null, clearFill: null }))).status,
+			(
+				await get(
+					"/fill?mb=1",
+					deps({ env: { FIXTURE_FILL: "on" }, fill: null }),
+				)
+			).status,
 		).toBe(503);
 	});
 });
@@ -478,6 +544,16 @@ describe("/sink", () => {
 			deliveries: { answered: number }[];
 		};
 		expect(inbox.deliveries.map((x) => x.answered)).toEqual([500]);
+	});
+
+	test("refuses a body over 64 KiB with 413 and keeps nothing", async () => {
+		const d = on();
+		const answer = await post(`/sink/${NAME}`, d, "x".repeat(64 * 1024 + 1));
+		expect(answer.status).toBe(413);
+		const inbox = (await (await get(`/sink/${NAME}/inbox`, d)).json()) as {
+			deliveries: unknown[];
+		};
+		expect(inbox.deliveries).toEqual([]);
 	});
 
 	test("refuses a short name, a GET on the sink and a POST on the inbox", async () => {

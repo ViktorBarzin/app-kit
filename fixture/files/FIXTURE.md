@@ -25,9 +25,9 @@ handlers (`src/fixture/nitro-config.ts`), matched before TanStack Start.
 | `GET /egress-ip` | `{ip, source}`: the address a public IP echo service sees. |
 | `GET /tcp?host=H&port=P` | A TCP connect with a 9 s timeout, under the SMTP test's 10 s: `{connected, error, ms}`; `error` is only the kind of failure (`timeout`, `refused`, `dns`, `unreachable`, `reset` or `error`). Only `smtp.gmail.com` on ports 25, 465, 587, 2525 and 443, and `www.google.com` on 443, the SMTP test's control. |
 | `GET /fetch?url=U` | A GET with a 10 s timeout: `{connected, status, error, ms}`, never the body; `error` as for `/tcp`. Only the App's own origins (`CLOUD_PUBLIC_URL`, each `CLOUD_URL_<NAME>`) and the origins its owner lists, comma-separated, in `FIXTURE_FETCH_ALLOW`. |
-| `GET /fill?mb=N` | Writes N MiB (1 to 256) of random bytes to table `fixture_fill`, so the database grows by about that much: `{wroteMib, tableMib}`. `GET /fill?clear=1` drops the table. 503 without `DATABASE_URL`. |
-| `POST /sink/<name>` | Only with `FIXTURE_SINK=on`: a webhook receiver. Keeps the delivery in memory and answers 200, or 500 when the name starts with `fail-`. The name is 16-80 of A-Z, a-z, 0-9, `_` and `-`; it is the only key, so make it long and random. It keeps the `webhook-*` headers, `content-type`, `user-agent` and the body, never another header. |
-| `GET /sink/<name>/inbox` | `{deliveries}`, oldest first: each with `n`, `at`, `method`, `headers`, `body`, `truncated` and `answered`. At most 200 per name and 50 names. |
+| `GET /fill?mb=N` | Only with `FIXTURE_FILL=on` (else 404): writes N MiB (1 to 256) of random bytes to table `fixture_fill`, so the database grows by about that much: `{wroteMib, databaseMib, maxMib}`. One call at a time (409 `fill_busy`). It refuses a write that would take the database past `FIXTURE_FILL_MAX_MIB` (default 921, 90% of the nano Size's 1 GiB) with 409 `fill_limit`. `GET /fill?clear=1` drops the table. 503 without `DATABASE_URL`. |
+| `POST /sink/<name>` | Only with `FIXTURE_SINK=on`: a webhook receiver. Keeps the delivery in memory and answers 200, or 500 when the name starts with `fail-`. The name is 16-80 of A-Z, a-z, 0-9, `_` and `-`; it is the only key, so make it long and random. It keeps the `webhook-*` headers, `content-type`, `user-agent` and the body, never another header. A body over 64 KiB answers 413 and is not kept. |
+| `GET /sink/<name>/inbox` | `{deliveries}`, oldest first: each with `n`, `at`, `method`, `headers`, `body` and `answered`. At most 200 per name, 50 names and 16 MiB of bodies in all; the oldest go first. |
 | `GET /build-assets` | `{assets}`: the client build's JS files, for the build env test. |
 | `/kv-selftest`, `/upload`, `/files/:key`, `/probe/pg`, `/probe/kv`, `/probe/s3` | 501 `{"error":{"code":"not_in_this_batch"}}` until a later batch of the parity work. |
 
@@ -53,7 +53,8 @@ it migrates, so the Deploy fails).
 
 `FIXTURE_PG_BUSY=<seconds>` (1 to 60) in the App's env keeps every
 Postgres connection the process may open busy with `select
-pg_sleep(<seconds>)`: the App from boot, `worker.js` until it stops, and
-each `tick.js` run for 60 s before it logs `tick`. A query that fails
-logs `pg-busy-error` with Postgres's message, such as `too many
-connections for role`.
+pg_sleep(<seconds>)`: the App on its own pool from boot, `worker.js` on
+its pg-boss pool until it stops, and each `tick.js` run for 60 s on a
+pool of `CLOUD_DATABASE_POOL_SIZE` connections (2 when unset) before it
+logs `tick`. A query that fails logs `pg-busy-error` with Postgres's
+message, such as `too many connections for role`.

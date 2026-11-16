@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
 	keptHeaders,
+	readLimited,
 	SINK_MAX_BODY,
 	SINK_MAX_DELIVERIES,
 	SINK_MAX_SINKS,
@@ -78,16 +79,8 @@ describe("the sink", () => {
 		expect(store.inbox("nobody-has-this-name")).toEqual([]);
 	});
 
-	test("bounds the body, the deliveries and the sinks", () => {
+	test("bounds the deliveries and the sinks", () => {
 		const store = new SinkStore();
-		const big = store.record(NAME, {
-			method: "POST",
-			headers: new Headers(),
-			body: "x".repeat(SINK_MAX_BODY + 5),
-			at,
-		});
-		expect(big.body).toHaveLength(SINK_MAX_BODY);
-		expect(big.truncated).toBe(true);
 		for (let i = 0; i < SINK_MAX_DELIVERIES + 3; i++)
 			store.record(NAME, {
 				method: "POST",
@@ -97,7 +90,7 @@ describe("the sink", () => {
 			});
 		const inbox = store.inbox(NAME);
 		expect(inbox).toHaveLength(SINK_MAX_DELIVERIES);
-		expect(inbox.at(-1)?.n).toBe(SINK_MAX_DELIVERIES + 4);
+		expect(inbox.at(-1)?.n).toBe(SINK_MAX_DELIVERIES + 3);
 		for (let i = 0; i < SINK_MAX_SINKS; i++)
 			store.record(`sink-${i}-${NAME}`, {
 				method: "POST",
@@ -106,5 +99,44 @@ describe("the sink", () => {
 				at,
 			});
 		expect(store.inbox(NAME)).toEqual([]);
+	});
+
+	test("keeps at most the total bytes, dropping the oldest deliveries first", () => {
+		const store = new SinkStore(10);
+		const add = (name: string, body: string) =>
+			store.record(name, { method: "POST", headers: new Headers(), body, at });
+		add(NAME, "aaaa");
+		add(`b-${NAME}`, "bbbb");
+		add(NAME, "cccc");
+		expect(store.bytes()).toBeLessThanOrEqual(10);
+		expect(store.inbox(NAME).map((d) => d.body)).toEqual(["cccc"]);
+		expect(store.inbox(`b-${NAME}`).map((d) => d.body)).toEqual(["bbbb"]);
+	});
+});
+
+describe("readLimited", () => {
+	test("refuses a body over the limit from Content-Length, before reading it", async () => {
+		const request = new Request("http://x/", {
+			method: "POST",
+			body: "x".repeat(10),
+			headers: { "content-length": String(SINK_MAX_BODY + 1) },
+		});
+		expect(await readLimited(request)).toBeNull();
+	});
+
+	test("refuses a streamed body that grows past the limit", async () => {
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (let i = 0; i < 3; i++) controller.enqueue(new Uint8Array(4));
+				controller.close();
+			},
+		});
+		const request = new Request("http://x/", { method: "POST", body: stream });
+		expect(await readLimited(request, 10)).toBeNull();
+	});
+
+	test("reads a body within the limit", async () => {
+		const request = new Request("http://x/", { method: "POST", body: "hello" });
+		expect(await readLimited(request, 10)).toBe("hello");
 	});
 });

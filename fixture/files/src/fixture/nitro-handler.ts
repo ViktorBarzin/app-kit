@@ -16,7 +16,12 @@ import { pool } from "#/server/db.server";
 import { databaseConfigured } from "#/server/env.server";
 
 import { enqueueFixtureJob } from "./boss";
-import { type FixtureDeps, handleFixture, type ItemRow } from "./routes";
+import {
+	type FillDb,
+	type FixtureDeps,
+	handleFixture,
+	type ItemRow,
+} from "./routes";
 
 /** Read through an alias, as env.server.ts does, so no bundler inlines a value. */
 const runtimeEnv: Record<string, string | undefined> = process.env;
@@ -96,22 +101,25 @@ const FILL_ROWS = `insert into fixture_fill (b)
 		from generate_series(1, 65536) g)
 	from generate_series(1, $1::int) r`;
 
-async function fill(mib: number): Promise<{ tableMib: number }> {
-	const client = pool.getClient();
-	await client.unsafe(
-		"create table if not exists fixture_fill (id bigserial primary key, b bytea not null)",
-	);
-	for (let done = 0; done < mib; done += 16)
-		await client.unsafe(FILL_ROWS, [Math.min(16, mib - done)]);
-	const [row] = await client.unsafe(
-		"select pg_total_relation_size('fixture_fill')::bigint as bytes",
-	);
-	return { tableMib: Math.round(Number(row?.bytes ?? 0) / 1048576) };
-}
-
-async function clearFill(): Promise<void> {
-	await pool.getClient().unsafe("drop table if exists fixture_fill");
-}
+const fillDb: FillDb = {
+	async write(mib) {
+		const client = pool.getClient();
+		await client.unsafe(
+			"create table if not exists fixture_fill (id bigserial primary key, b bytea not null)",
+		);
+		for (let done = 0; done < mib; done += 16)
+			await client.unsafe(FILL_ROWS, [Math.min(16, mib - done)]);
+	},
+	async clear() {
+		await pool.getClient().unsafe("drop table if exists fixture_fill");
+	},
+	async databaseMib() {
+		const [row] = await pool
+			.getClient()
+			.unsafe("select pg_database_size(current_database())::bigint as bytes");
+		return Math.round(Number(row?.bytes ?? 0) / 1048576);
+	},
+};
 
 async function assets(): Promise<string[]> {
 	for (const dir of ["public/assets", ".output/public/assets"]) {
@@ -148,8 +156,7 @@ const deps: FixtureDeps = {
 	enqueue: databaseConfigured()
 		? () => enqueueFixtureJob(() => pool.getClient())
 		: null,
-	fill: databaseConfigured() ? fill : null,
-	clearFill: databaseConfigured() ? clearFill : null,
+	fill: databaseConfigured() ? fillDb : null,
 };
 
 export default defineHandler((event) => handleFixture(event.req, deps));

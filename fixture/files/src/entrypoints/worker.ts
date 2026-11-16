@@ -8,6 +8,7 @@
 import { createSqlClient, pgSettingsFromEnv } from "@viktorbarzin/pg";
 
 import { startWorkerBoss, workerPoolSize } from "#/fixture/boss";
+import { startPgBusy } from "#/fixture/pg-busy";
 
 const env: Record<string, string | undefined> = process.env;
 const version = env.SERVICE_VERSION ?? "dev";
@@ -24,12 +25,23 @@ const sql = env.DATABASE_URL?.trim()
 	: null;
 const boss = sql ? await startWorkerBoss(sql, version, log) : null;
 if (!boss) log(JSON.stringify({ msg: "worker-no-database", version }));
+// P49: with FIXTURE_PG_BUSY set, every connection of this same pool stays busy.
+const busy = sql
+	? startPgBusy({
+			query: (text) => sql.unsafe(text),
+			connections: poolSize,
+			env,
+			log,
+			role: "worker",
+		})
+	: null;
 
 let stopping = false;
 for (const signal of ["SIGTERM", "SIGINT"] as const)
 	process.on(signal, async () => {
 		if (stopping) return;
 		stopping = true;
+		busy?.stop();
 		try {
 			await boss?.stop({ graceful: true, timeout: 10_000 });
 			await sql?.close();

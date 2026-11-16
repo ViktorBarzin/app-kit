@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { PG_BUSY_RETRY_MS, pgBusySeconds, startPgBusy } from "./pg-busy";
+import {
+	PG_BUSY_PAUSE_MS,
+	PG_BUSY_RETRY_MS,
+	pgBusySeconds,
+	startPgBusy,
+} from "./pg-busy";
 
 describe("pgBusySeconds", () => {
 	test("1 to 60 whole seconds; anything else is off", () => {
@@ -35,6 +40,7 @@ describe("startPgBusy", () => {
 		let most = 0;
 		const sql: string[] = [];
 		const logged: string[] = [];
+		const paused: number[] = [];
 		const busy = startPgBusy({
 			query: async (text) => {
 				sql.push(text);
@@ -50,9 +56,12 @@ describe("startPgBusy", () => {
 			role: "cron",
 			forMs: 9_000,
 			now: () => clock,
-			sleep: async () => {},
+			sleep: async (ms) => {
+				paused.push(ms);
+			},
 		});
 		await busy?.done;
+		expect(new Set(paused)).toEqual(new Set([PG_BUSY_PAUSE_MS]));
 		expect(most).toBe(3);
 		expect(new Set(sql)).toEqual(new Set(["select pg_sleep(2)"]));
 		expect(JSON.parse(logged[0] ?? "{}")).toMatchObject({
