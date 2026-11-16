@@ -46,6 +46,12 @@ are, except where this section says otherwise.
   only the people on its allow list: its edge sends a signed-out page load
   to sign-in before it reaches the App, so the landing page never shows
   there. Cloud sets this, not the code.
+- **Internal.** An internal App has no address outside Cloud and no
+  sign-in. Only the Apps of its Project that list it in `connects` reach
+  it, at the URL in their `CLOUD_URL_<NAME>`. Their calls carry no user, so
+  `requireMember` answers 401: serve what they need on routes that need no
+  user. To call an internal App from this one, read its URL from
+  `CLOUD_URL_<NAME>` on the server.
 - **Two 401s.** A 401 with `sign_in_required` comes from Cloud's edge (a
   private App and no sign-in); a 401 with `unauthorized` comes from this
   app's own code (`requireMember` with no user).

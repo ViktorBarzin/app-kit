@@ -17,7 +17,7 @@ The `cloud` CLI is on the devvm for every user.
 
 ```sh
 cloud login                                  # once, with a device code
-cloud new <app> --access private --yes       # or --access public
+cloud new <app> --access private --yes       # or --access public, or internal
 ```
 
 `cloud new` copies `viktor/app-template` into your own Forgejo account,
@@ -132,6 +132,14 @@ flowchart LR
   through, and the template's home page shows them a landing page with a
   "Sign in" link (200). A private App's edge sends a signed-out page load to
   sign-in first, so it never reaches the App.
+- **Internal Apps.** With `access: internal` an App has no edge and no
+  address outside Cloud: its https address answers 404. Only the Apps of
+  the same Project that list it in `connects` reach it, at the URL in their
+  `CLOUD_URL_<NAME>` (`http://app-<name>.p-<project>.svc.cluster.local`).
+  Those calls carry no `X-Cloud-User-*` headers and no edge secret, so
+  `createCloudAuth` treats each one as anonymous and `requireUser` answers
+  401. Serve what the calling Apps need on routes that need no user; the
+  calling App checks who its own visitor is (`cloud help apps`).
 - **Connections.** Cloud sets `CLOUD_DATABASE_POOL_SIZE`, the pool each
   pod may open, and the pod adds 1 `LISTEN` connection. Cloud counts every
   process on the database at its peak: each App instance twice, since
@@ -221,11 +229,13 @@ flowchart LR
 
 The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
 `CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_POOL_SIZE`,
-`CLOUD_DATABASE_CONNECTION_LIMIT`, `CLOUD_ACCESS` (`public` or `private`)
+`CLOUD_DATABASE_CONNECTION_LIMIT`, `CLOUD_ACCESS` (`public`, `private` or `internal`)
 and `CLOUD_INSTANCE_ID` (the instance's pod name; `cloud logs` shows its
 last 5 characters on each line). `src/server/env.server.ts` reads all but
 `CLOUD_ACCESS` and `CLOUD_INSTANCE_ID`: the first is the edge's setting,
-the second a label for logs.
+the second a label for logs. An internal App's `CLOUD_PUBLIC_URL` is its
+URL inside the cluster, and an App that connects to internal Apps gets one
+`CLOUD_URL_<NAME>` for each.
 
 ## Workers and cron jobs on Cloud
 
