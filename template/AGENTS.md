@@ -88,8 +88,11 @@ are, except where this section says otherwise.
   failed and the last 20 lines of its build; `cloud deploys log <project>
   <app> <deploy-id>` prints the whole build.
 - **Migrations.** `bun run db:generate` writes them to `drizzle/`; commit
-  them. Before each deploy Cloud runs `entrypoints/migrate.js` from the image,
-  which applies them. Keep them additive (see Database).
+  them. Once per Deploy, before the new version starts, Cloud runs
+  `entrypoints/migrate.js` from the image as a Job, which applies them. If
+  it fails, the Deploy fails, the version before keeps serving, and
+  `cloud deploys log <project> <app> <deploy-id>` ends with its output.
+  Keep them additive (see Database).
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz` in the
   Project File, and `src/routes/healthz.ts` answers it. Cloud asks it on
   PORT every 10 s: a Deploy goes live only once it answers 2xx, and an

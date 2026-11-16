@@ -135,8 +135,15 @@ flowchart LR
   A pod on an older `@viktorbarzin/pg` reads `CLOUD_DATABASE_CONNECTION_LIMIT`
   and uses half of it, which fits only an App with 1 instance.
 
-- **Migrations** run from `drizzle/` before each deploy, in an init
-  container with the args `["entrypoints/migrate.js"]`.
+- **Migrations** run from `drizzle/` once per Deploy, before the new
+  version starts, as a Kubernetes Job with the args
+  `["entrypoints/migrate.js"]`, the app's image and env, and one database
+  connection. A failure fails the Deploy and the version before keeps
+  serving; `cloud deploys log <project> <app> <id>` ends with their output.
+- **Shutdown delay.** A stopping instance keeps serving for 5 s, plus the
+  App's `shutdownDelaySeconds` in the Project File (0 to 300, default 0),
+  before it gets `SIGTERM`. Set it to the slowest request the app serves,
+  so a Deploy cuts none off.
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz`, which
   the template's `/healthz` answers with a static ok. A Deploy goes live
   only once that path answers 2xx, so a version that cannot serve fails
