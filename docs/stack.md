@@ -404,7 +404,10 @@ flowchart LR
   `import.meta.env.VITE_*` into the page's JS, where anyone can read it. A
   repo with no Dockerfile gets the same names in its Railpack build. App
   secrets, generated ones (`{generate: true}`) too, reach only the running
-  pod.
+  pod. Left out of the build, though not out of the pod: `PATH`, `LD_*`,
+  `DOCKER_*`, `BUILDX_*`, `BUILDKIT_*`, `HTTP_PROXY`, `HTTPS_PROXY`,
+  `NO_PROXY`, `ALL_PROXY`, `NODE_OPTIONS` and `BUN_*`, in any case;
+  they would steer the builder's own tools.
 - **Build logs.** `cloud deploys <project> <app>` shows a failed Deploy's
   reason and the last 20 lines of its build, and `cloud deploys log
   <project> <app> <deploy-id>` prints the full build output. The builder
