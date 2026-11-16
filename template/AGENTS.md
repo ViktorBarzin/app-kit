@@ -52,6 +52,20 @@ are, except where this section says otherwise.
   older codes stay valid until used or expired, since Cloud cannot revoke
   them. A redeemed old code only makes a Cloud App Guests account, which
   opens no App unless its email is on that App's allow list.
+- **Secrets.** Keep keys and passwords out of the repo and the Project
+  File. Set one from stdin, never as an argument:
+  `printf %s "$VALUE" | cloud secrets set <project> <app> STRIPE_KEY`, or
+  a whole file with `cloud secrets import <project> <app> < .env` (one
+  change, one restart). Over MCP, use `set_secret`. It arrives as an env
+  variable after the App restarts, in about a minute; `cloud secrets list`
+  shows names and status, never values. For a value no person needs, such
+  as a session or signing key, write `SESSION_SECRET: {generate: true}` in
+  the App's `env` in the Project File: Cloud makes 32 random bytes once,
+  keeps them on every apply and never shows them. Read it in
+  `env.server.ts` like any other variable.
+- **Access Tokens for CI.** `cloud tokens create --expires 30d` (after
+  `cloud login`) prints a token for `CLOUD_TOKEN`. Every token expires, 90
+  days at most, and nothing extends it.
 - **No access requests and no bearer tokens.** `/pending` and
   `/admin/requests` redirect. `/api` routes work from the signed-in browser
   only.

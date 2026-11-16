@@ -324,6 +324,29 @@ For a private app, `cloud invite <project> <app> <email>` adds a person to
 its allow list and prints a one-time sign-up code for someone with no
 homelab account. `cloud --help` lists the other commands.
 
+Secrets never go in the repo or the Project File. Set one from stdin, never
+as an argument, and the App restarts with it in about a minute:
+
+```sh
+printf %s "$STRIPE_KEY" | cloud secrets set <project> <app> STRIPE_KEY
+cloud secrets import <project> <app> < .env    # every KEY=value as one change
+cloud secrets list <project> <app>             # names and status, never values
+```
+
+Agents on MCP use `set_secret`, `list_secrets` and `unset_secret`. For a
+value no person needs to know, such as a session or signing key, let Cloud
+make it in the App's `env` in the Project File:
+
+```yaml
+    env:
+      SESSION_SECRET: {generate: true}
+```
+
+Cloud makes 32 random bytes (base64url) once and keeps the same value on
+every apply; no command, page or export shows it, and removing the line
+deletes it. For CI, `cloud tokens create --expires 30d` prints an Access
+Token for `CLOUD_TOKEN`; every token expires, 90 days at most.
+
 Cloud sets `CLOUD_EDGE_SECRET`, and the app then runs in cloud mode:
 
 ```mermaid
