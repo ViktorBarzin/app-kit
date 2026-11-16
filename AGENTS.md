@@ -10,6 +10,7 @@ reference app the code was extracted from is `~/code/tasks`. Read
 ```
 packages/<name>/   one npm package each: src/, dist/ (tsc -b), README.md, CHANGELOG.md
 template/          the app template's source of truth (a workspace member); see template/AGENTS.md
+fixture/           the fixture variant of the template for Cloud's parity suite: files/ overlay + variant.ts edits
 docs/adr/          architecture decisions (ADR-0001: the default app stack; ADR-0002: log fields and telemetry)
 scripts/           check-public.ts, check-readmes.ts, release.ts, export-template.ts (+ tests), workflows.test.ts
 .github/workflows/ ci.yml (every push), release.yml (master)

@@ -24,7 +24,11 @@ diagrams.
 workspace member that uses the packages through `workspace:^`, so a package
 change and the template that proves it land in one commit. The repository new
 apps are made from, `viktor/app-template`, is generated from it by
-`scripts/export-template.ts`.
+`scripts/export-template.ts`. [`fixture/`](fixture) is a variant of it for
+Cloud's parity suite: `--variant fixture` copies `fixture/files` over the
+export and applies the edits in `fixture/variant.ts`, and the result is
+`viktor/app-template-fixture` (`cloud new <app> --template fixture`). Its
+`FIXTURE.md` lists the test routes.
 
 The canonical repository is `viktor/app-kit` on Forgejo. The GitHub repository
 `ViktorBarzin/app-kit` is a one-way push mirror where GitHub Actions run CI and
@@ -84,6 +88,8 @@ scope in `bunfig.toml`:
    `viktor/app-template` with the published versions. It clones into a
    temporary directory and removes it after the push, or after a failure;
    `--keep` keeps it, and `--target <dir>` uses a clone you own.
+   `bun scripts/export-template.ts --variant fixture --push` refreshes
+   `viktor/app-template-fixture` the same way.
 
 To publish by hand, for example when CI is down: build and pack from a clean
 checkout of master (`bun install && bun run build && bun scripts/release.ts --pack-only .packs`),

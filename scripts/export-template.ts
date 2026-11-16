@@ -2,7 +2,7 @@
  * Refresh viktor/app-template (the repository new apps are made from) from
  * template/, after the packages are published:
  *
- *   bun scripts/export-template.ts [--target <dir>] [--push] [--no-install] [--keep]
+ *   bun scripts/export-template.ts [--target <dir>] [--push] [--no-install] [--keep] [--variant fixture]
  *
  * - copies template/ (without build output or node_modules) over a clone of
  *   viktor/app-template, deleting files the template no longer has;
@@ -14,6 +14,10 @@
  *   its build.yml reports as "publish @viktorbarzin packages first");
  * - with --push, commits and pushes to Forgejo (FORGEJO_GIT_TOKEN, or the
  *   ssh remote when unset).
+ * - with --variant fixture, copies fixture/files over the export and applies
+ *   fixture/variant.ts's edits, and the repo is viktor/app-template-fixture:
+ *   the fixture App of Cloud's parity suite (`cloud new --template fixture`).
+ *   template/ itself is never changed.
  *
  * Without --target it clones into a temporary directory under the system's
  * temp dir. With --push it removes that clone afterwards, also when a step
@@ -33,10 +37,13 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { type TemplateVariant, VARIANTS } from "../fixture/variant.js";
 import { listPackages } from "./release.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const TEMPLATE = join(ROOT, "template");
+const FIXTURE = join(ROOT, "fixture");
+const BASE_REPO = "viktor/app-template";
 const SKIP = new Set([
 	"node_modules",
 	".output",
@@ -118,6 +125,8 @@ export interface ExportArgs {
 	install: boolean;
 	/** Keep the temporary clone after a push. */
 	keep: boolean;
+	/** A name in VARIANTS, or null for the base template. */
+	variant: string | null;
 }
 
 export function parseExportArgs(argv: readonly string[]): ExportArgs {
@@ -126,6 +135,7 @@ export function parseExportArgs(argv: readonly string[]): ExportArgs {
 		push: false,
 		install: true,
 		keep: false,
+		variant: null,
 	};
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
@@ -137,9 +147,58 @@ export function parseExportArgs(argv: readonly string[]): ExportArgs {
 			if (!dir || dir.startsWith("--"))
 				throw new Error("--target needs a directory");
 			out.target = dir;
+		} else if (arg === "--variant") {
+			const name = argv[++i];
+			if (!name || name.startsWith("--"))
+				throw new Error("--variant needs a name");
+			if (!VARIANTS[name])
+				throw new Error(
+					`unknown variant ${name}; known: ${Object.keys(VARIANTS).join(", ")}`,
+				);
+			out.variant = name;
 		} else throw new Error(`unknown argument ${arg}`);
 	}
 	return out;
+}
+
+/**
+ * Copies the variant's files over an exported template and applies its
+ * edits. Each edit's text must be in its file exactly once.
+ */
+export async function applyVariant(
+	target: string,
+	variant: string | TemplateVariant,
+	options: { overlay?: boolean } = {},
+): Promise<void> {
+	const spec = typeof variant === "string" ? VARIANTS[variant] : variant;
+	if (!spec) throw new Error(`unknown variant ${String(variant)}`);
+	if (options.overlay !== false)
+		await cp(join(FIXTURE, spec.files), target, { recursive: true });
+	for (const edit of spec.edits) {
+		const path = join(target, edit.path);
+		const text = await readFile(path, "utf8");
+		const count = text.split(edit.find).length - 1;
+		if (count !== 1)
+			throw new Error(
+				`variant edit of ${edit.path}: expected its text once, found it ${count} times: ${JSON.stringify(edit.find)}`,
+			);
+		await writeFile(
+			path,
+			text.replace(edit.find, () => edit.replace),
+		);
+	}
+}
+
+/** The git remote of the base template or of a variant. */
+export function remoteFor(
+	variant: string | null,
+	token: string | undefined,
+): string {
+	const repo = variant ? (VARIANTS[variant]?.repo ?? "") : BASE_REPO;
+	if (!repo) throw new Error(`unknown variant ${variant}`);
+	return token
+		? `https://viktor:${token}@forgejo.viktorbarzin.me/${repo}.git`
+		: `git@git.viktorbarzin.me:${repo}.git`;
 }
 
 function run(cmd: string[], cwd: string): void {
@@ -156,7 +215,7 @@ function run(cmd: string[], cwd: string): void {
 }
 
 export interface ExportOptions {
-	/** The git remote of viktor/app-template. */
+	/** The git remote of viktor/app-template, or of the variant's repo. */
 	remote: string;
 	/** Where a temporary clone goes; the system's temp dir by default. */
 	tmpRoot?: string;
@@ -200,6 +259,7 @@ export async function exportTemplate(
 
 async function exportInto(target: string, args: ExportArgs): Promise<void> {
 	await copyTemplate(target);
+	if (args.variant) await applyVariant(target, args.variant);
 	if (args.install) run([process.execPath, "install"], target);
 	if (!args.push) return;
 	if (!existsSync(join(target, ".git")))
@@ -210,15 +270,16 @@ async function exportInto(target: string, args: ExportArgs): Promise<void> {
 	})
 		.stdout.toString()
 		.trim();
-	run(["git", "commit", "-m", `Export template from app-kit ${sha}`], target);
+	const what = args.variant
+		? `Export template, ${args.variant} variant, from app-kit ${sha}`
+		: `Export template from app-kit ${sha}`;
+	run(["git", "commit", "-m", what], target);
 	run(["git", "push", "origin", "HEAD:master"], target);
 }
 
 if (import.meta.main) {
-	const token = process.env.FORGEJO_GIT_TOKEN;
-	await exportTemplate(parseExportArgs(process.argv.slice(2)), {
-		remote: token
-			? `https://viktor:${token}@forgejo.viktorbarzin.me/viktor/app-template.git`
-			: "git@git.viktorbarzin.me:viktor/app-template.git",
+	const args = parseExportArgs(process.argv.slice(2));
+	await exportTemplate(args, {
+		remote: remoteFor(args.variant, process.env.FORGEJO_GIT_TOKEN),
 	});
 }

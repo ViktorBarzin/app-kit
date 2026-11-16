@@ -11,10 +11,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { TemplateVariant } from "../fixture/variant.js";
 import {
+	applyVariant,
 	copyTemplate,
 	exportTemplate,
 	parseExportArgs,
+	remoteFor,
 	rewriteManifest,
 } from "./export-template.js";
 
@@ -91,13 +94,20 @@ describe("parseExportArgs", () => {
 			push: false,
 			install: true,
 			keep: false,
+			variant: null,
 		});
 	});
 
 	test("--no-install skips bun install, for an export before the packages are on npm", () => {
 		expect(
 			parseExportArgs(["--target", "/tmp/x", "--push", "--no-install"]),
-		).toEqual({ target: "/tmp/x", push: true, install: false, keep: false });
+		).toEqual({
+			target: "/tmp/x",
+			push: true,
+			install: false,
+			keep: false,
+			variant: null,
+		});
 	});
 
 	test("--keep keeps the temporary clone after a push", () => {
@@ -106,6 +116,15 @@ describe("parseExportArgs", () => {
 
 	test("--target needs a directory", () => {
 		expect(() => parseExportArgs(["--target"])).toThrow("--target");
+	});
+
+	test("--variant fixture picks the fixture variant", () => {
+		expect(parseExportArgs(["--variant", "fixture"]).variant).toBe("fixture");
+	});
+
+	test("--variant refuses a name it does not know", () => {
+		expect(() => parseExportArgs(["--variant", "other"])).toThrow("fixture");
+		expect(() => parseExportArgs(["--variant"])).toThrow("--variant");
 	});
 
 	test("an unknown flag is an error", () => {
@@ -172,7 +191,7 @@ describe("exportTemplate without --target (round 9)", () => {
 		const root = await tmpRoot();
 		const lines: string[] = [];
 		const result = await exportTemplate(
-			{ target: null, push: true, install: false, keep: false },
+			{ target: null, push: true, install: false, keep: false, variant: null },
 			{ remote, tmpRoot: root, log: (line) => lines.push(line) },
 		);
 		expect(result.kept).toBe(false);
@@ -197,7 +216,13 @@ describe("exportTemplate without --target (round 9)", () => {
 		const root = await tmpRoot();
 		await expect(
 			exportTemplate(
-				{ target: null, push: true, install: false, keep: false },
+				{
+					target: null,
+					push: true,
+					install: false,
+					keep: false,
+					variant: null,
+				},
 				{ remote, tmpRoot: root, log: () => {} },
 			),
 		).rejects.toThrow("git push");
@@ -211,7 +236,13 @@ describe("exportTemplate without --target (round 9)", () => {
 		const root = await tmpRoot();
 		await expect(
 			exportTemplate(
-				{ target: null, push: true, install: false, keep: false },
+				{
+					target: null,
+					push: true,
+					install: false,
+					keep: false,
+					variant: null,
+				},
 				{ remote: join(root, "missing.git"), tmpRoot: root, log: () => {} },
 			),
 		).rejects.toThrow("git clone");
@@ -223,7 +254,7 @@ describe("exportTemplate without --target (round 9)", () => {
 		const root = await tmpRoot();
 		const lines: string[] = [];
 		const result = await exportTemplate(
-			{ target: null, push: true, install: false, keep: true },
+			{ target: null, push: true, install: false, keep: true, variant: null },
 			{ remote, tmpRoot: root, log: (line) => lines.push(line) },
 		);
 		expect(result.kept).toBe(true);
@@ -236,7 +267,7 @@ describe("exportTemplate without --target (round 9)", () => {
 		const root = await tmpRoot();
 		const lines: string[] = [];
 		const result = await exportTemplate(
-			{ target: null, push: false, install: false, keep: false },
+			{ target: null, push: false, install: false, keep: false, variant: null },
 			{ remote, tmpRoot: root, log: (line) => lines.push(line) },
 		);
 		expect(result.kept).toBe(true);
@@ -245,5 +276,123 @@ describe("exportTemplate without --target (round 9)", () => {
 		expect(said).toContain(result.target);
 		expect(said).toContain("temporary");
 		expect(said).toContain(`rm -rf ${result.target}`);
+	}, 60_000);
+});
+
+describe("remoteFor", () => {
+	test("the base template's repo, or the variant's", () => {
+		expect(remoteFor(null, "tok")).toBe(
+			"https://viktor:tok@forgejo.viktorbarzin.me/viktor/app-template.git",
+		);
+		expect(remoteFor("fixture", undefined)).toBe(
+			"git@git.viktorbarzin.me:viktor/app-template-fixture.git",
+		);
+	});
+});
+
+describe("applyVariant (the fixture)", () => {
+	test("overlays fixture/files and applies every edit to the copied template", async () => {
+		const target = await mkdtemp(join(tmpdir(), "export-fixture-"));
+		dirs.push(target);
+		await copyTemplate(target);
+		await applyVariant(target, "fixture");
+		for (const file of [
+			"FIXTURE.md",
+			"src/fixture/routes.ts",
+			"src/fixture/nitro-handler.ts",
+			"src/fixture/ws.ts",
+			"src/entrypoints/worker.ts",
+			"src/entrypoints/tick.ts",
+			"src/entrypoints/seed.ts",
+		])
+			expect([file, existsSync(join(target, file))]).toEqual([file, true]);
+		const vite = await readFile(join(target, "vite.config.ts"), "utf8");
+		expect(vite).toContain("...fixtureNitro,");
+		const docker = await readFile(join(target, "Dockerfile"), "utf8");
+		expect(docker).toContain(
+			"ARG VITE_GREETING\nARG VITE_KEY\nRUN bun run build",
+		);
+		const manifest = JSON.parse(
+			await readFile(join(target, "package.json"), "utf8"),
+		);
+		expect(manifest.scripts["build:entrypoints"]).toContain(
+			"src/entrypoints/seed.ts",
+		);
+		const root = await readFile(join(target, "src/routes/__root.tsx"), "utf8");
+		expect(root).toContain("fixture-build-env");
+	});
+
+	test("leaves app-kit's template untouched", async () => {
+		const target = await mkdtemp(join(tmpdir(), "export-fixture-"));
+		dirs.push(target);
+		const before = await readFile("template/vite.config.ts", "utf8");
+		await copyTemplate(target);
+		await applyVariant(target, "fixture");
+		expect(await readFile("template/vite.config.ts", "utf8")).toBe(before);
+		expect(existsSync("template/src/fixture")).toBe(false);
+	});
+
+	async function withFile(text: string): Promise<string> {
+		const target = await mkdtemp(join(tmpdir(), "export-edit-"));
+		dirs.push(target);
+		await writeFile(join(target, "a.txt"), text);
+		return target;
+	}
+	const variant = (find: string): TemplateVariant => ({
+		repo: "viktor/x",
+		files: "files",
+		edits: [{ path: "a.txt", find, replace: "B" }],
+	});
+
+	test("an edit whose text is missing stops the export", async () => {
+		const target = await withFile("nothing here");
+		await expect(
+			applyVariant(target, variant("anchor"), { overlay: false }),
+		).rejects.toThrow("a.txt");
+	});
+
+	test("an edit whose text is there twice stops the export", async () => {
+		const target = await withFile("anchor anchor");
+		await expect(
+			applyVariant(target, variant("anchor"), { overlay: false }),
+		).rejects.toThrow("2 times");
+	});
+});
+
+describe("exportTemplate --variant fixture", () => {
+	const saved: Record<string, string | undefined> = {};
+	beforeAll(() => {
+		for (const [key, value] of Object.entries(GIT_ENV))
+			if (key !== "PATH") {
+				saved[key] = process.env[key];
+				process.env[key] = value;
+			}
+	});
+	afterAll(() => {
+		for (const [key, value] of Object.entries(saved))
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+	});
+
+	test("pushes the template with the fixture on top, and says so in the commit", async () => {
+		const remote = await bareRemote();
+		const root = await mkdtemp(join(tmpdir(), "export-tmp-"));
+		dirs.push(root);
+		await exportTemplate(
+			{
+				target: null,
+				push: true,
+				install: false,
+				keep: false,
+				variant: "fixture",
+			},
+			{ remote, tmpRoot: root, log: () => {} },
+		);
+		expect(git(["log", "-1", "--format=%s", "master"], remote)).toStartWith(
+			"Export template, fixture variant, from app-kit ",
+		);
+		expect(git(["show", "master:src/fixture/routes.ts"], remote)).toContain(
+			"handleFixture",
+		);
 	}, 60_000);
 });
