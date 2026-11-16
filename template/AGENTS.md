@@ -93,6 +93,14 @@ are, except where this section says otherwise.
   it fails, the Deploy fails, the version before keeps serving, and
   `cloud deploys log <project> <app> <deploy-id>` ends with its output.
   Keep them additive (see Database).
+- **One-off jobs.** `cloud run <project> <app> -- <command>` runs a
+  command once with the live version's image, env and secrets, prints its
+  output and exits with its exit code; `cloud jobs <project> <app>` lists
+  them. The command runs with no shell and at most 1 hour, one at a time
+  per Project, and cannot call an internal App. Bundle a script as
+  `migrate.ts` is (`build:entrypoints`), and it runs as
+  `cloud run <project> <app> -- bun entrypoints/<name>.js`. It
+  opens 1 database connection that the Plan does not count.
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz` in the
   Project File, and `src/routes/healthz.ts` answers it. Cloud asks it on
   PORT every 10 s: a Deploy goes live only once it answers 2xx, and an

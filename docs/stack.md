@@ -38,6 +38,17 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
   `--grep <text>` (plain text, case-sensitive), `--level
   debug|info|warn|error|fatal`, `--instance <pod>`, `--deploy <version>`
   and `--since <time>` filter them, with `-f` too.
+- `cloud run <project> <app> -- <command> [args...]` runs a command once
+  with the App's live image, env and secrets, such as `cloud run shop web
+  -- bun entrypoints/seed.js`. It prints the output as it comes and
+  exits with the command's exit code. The command after `--` goes to Cloud
+  as a list and runs with no shell; for shell syntax, run `sh -c '...'`
+  where the image has a shell. One job runs per Project at a time, for at
+  most 1 hour, and it counts the App's Size in your Budget while it runs.
+  A job, like the migrations, cannot call an internal App of its Project:
+  the network lets only App pods reach it.
+  `cloud jobs <project> <app> [<id>]` lists the last 20 with their exit
+  codes, or prints one with its output.
 - `cloud events <project> <app>` lists the App's history in time order:
   its Deploys (started, live, failed), restarts, suspends, skipped commits,
   applies and secret changes that touched it, and when it started crashing,
@@ -126,7 +137,9 @@ flowchart LR
   process on the database at its peak: each App instance twice, since
   during a rollout the old pods keep their connections until they stop;
   `migrate` 1, inside a new pod's share; and when you add them, each
-  worker 1 and each cron run 1. The pool takes what is left, split across
+  worker 1 and each cron run 1. A one-off job (`cloud run`) opens 1 more,
+  which the Plan does not count: on a Postgres the Plan fills, pick the
+  next Size before you run jobs. The pool takes what is left, split across
   the App pods, at least 1 and at most 4. `cloud plan` refuses a Project
   File whose processes need more than the Size gives and names the Size
   to pick (`cloud help limits`).
