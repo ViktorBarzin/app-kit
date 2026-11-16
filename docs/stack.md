@@ -306,7 +306,14 @@ Forgejo account, creates a Project with the app and its own nano Postgres,
 pushes the first commit, applies it and waits until the apply ends (a
 failed apply exits 7 with its reason; `--no-wait` returns at once). Each
 later push to `master` builds and deploys, and `cloud deploys <project>
-<app>` lists the Deploys and says what holds one up. `cloud new` uses the
+<app>` lists the Deploys with what started each one and how long it took,
+and says what holds one up. `cloud new` also adds a Forgejo push webhook
+to the repo, so a push deploys within seconds; `cloud webhook <project>
+<app>` adds it to an older App. A commit message with `[skip cloud]` makes
+no Deploy, `autoDeploy: false` in the Project File stops push Deploys,
+`cloud deploy <project> <app> [--commit <sha>]` deploys by hand, `cloud
+deploy cancel` stops a build, and `cloud deploy-hook` prints a secret URL
+that deploys on a POST. `cloud new` uses the
 Forgejo login git holds: an access token with the `write:repository` and
 `write:user` scopes in git's credentials. The repo is private unless you
 pass `--public-repo`, and Cloud builds a private repo only for the Forgejo

@@ -83,6 +83,14 @@ are, except where this section says otherwise.
 - **Connections.** The pod takes half the database's connection limit: the
   pool, plus one LISTEN connection when realtime is on. On a nano database realtime is off and lists refetch every `app.pollMs`;
   invalidate the query after a write, as `routes/index.tsx` does.
+- **Deploys.** Cloud deploys each push to `master` within seconds (a
+  Forgejo push webhook, which `cloud new` adds). To push without a
+  Deploy, put `[skip cloud]` in the commit message. `cloud deploy
+  <project> <app>` deploys the branch head by hand, `--commit <sha>` one
+  commit; `autoDeploy: false` on the App in the Project File stops push
+  Deploys. `cloud deploy cancel <project> <app> <id>` stops a build, and
+  `cloud deploy-hook <project> <app>` prints a secret URL a POST to which
+  deploys. Keep that URL out of the repo.
 - **Test locally first.** Each push costs build minutes. Before you push,
   start a throwaway Postgres (README, "Run locally"), install the test
   browser once with `bunx playwright install chromium-headless-shell`, and
