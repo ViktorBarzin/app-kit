@@ -61,6 +61,7 @@ function deps(overrides: Partial<FixtureDeps> = {}): FixtureDeps & {
 		fetch: async () => new Response("ok", { status: 200 }),
 		allocate: () => {},
 		assets: async () => ["/assets/main-1.js"],
+		enqueue: async () => "0b6d3c1e-5f1a-4c55-9a43-3f1b2c4d5e6f",
 		exits,
 		slept,
 		deleted,
@@ -127,6 +128,24 @@ describe("/items", () => {
 			deps({ writeItem: null, readItem: null, deleteItem: null }),
 		);
 		expect(response.status).toBe(503);
+	});
+});
+
+describe("/enqueue", () => {
+	test("queues a job and answers its id", async () => {
+		const response = await get("/enqueue", deps());
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			id: "0b6d3c1e-5f1a-4c55-9a43-3f1b2c4d5e6f",
+		});
+	});
+
+	test("503 without a database", async () => {
+		const response = await get("/enqueue", deps({ enqueue: null }));
+		expect(response.status).toBe(503);
+		expect(await response.json()).toMatchObject({
+			error: { code: "no_database" },
+		});
 	});
 });
 
@@ -327,7 +346,6 @@ test("genericError keeps only the kind of failure", () => {
 describe("later batches", () => {
 	test("answer 501 not_in_this_batch", async () => {
 		for (const path of [
-			"/enqueue",
 			"/kv-selftest",
 			"/upload",
 			"/files/a.txt",

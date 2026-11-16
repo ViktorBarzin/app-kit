@@ -75,6 +75,8 @@ export interface FixtureDeps {
 	allocate: () => void;
 	/** The client build's JS files, as URL paths. */
 	assets: () => Promise<string[]>;
+	/** Queues a pg-boss job on queue `fixture` and returns its id; null without a database. */
+	enqueue: (() => Promise<string>) | null;
 }
 
 interface FixtureState {
@@ -297,7 +299,6 @@ async function fetchStatus(deps: FixtureDeps, url: URL): Promise<Response> {
 }
 
 const LATER = [
-	/^\/enqueue$/,
 	/^\/kv-selftest$/,
 	/^\/upload$/,
 	/^\/files\/[^/]+$/,
@@ -357,6 +358,10 @@ export async function handleFixture(
 			return log(deps, url);
 		case "/build-assets":
 			return json({ assets: await deps.assets() });
+		case "/enqueue":
+			if (!deps.enqueue)
+				return fail(503, "no_database", "the App has no DATABASE_URL");
+			return json({ id: await deps.enqueue() });
 	}
 	if (LATER.some((pattern) => pattern.test(url.pathname)))
 		return json(NOT_IN_THIS_BATCH, 501);

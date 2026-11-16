@@ -15,6 +15,7 @@ import { items } from "#/server/db/schema.server";
 import { pool } from "#/server/db.server";
 import { databaseConfigured } from "#/server/env.server";
 
+import { enqueueFixtureJob } from "./boss";
 import { type FixtureDeps, handleFixture, type ItemRow } from "./routes";
 
 /** Read through an alias, as env.server.ts does, so no bundler inlines a value. */
@@ -117,6 +118,10 @@ const deps: FixtureDeps = {
 	fetch: (url, init) => fetch(url, init),
 	allocate,
 	assets,
+	// On the template's pool: the App opens no second one for pg-boss.
+	enqueue: databaseConfigured()
+		? () => enqueueFixtureJob(() => pool.getClient())
+		: null,
 };
 
 export default defineHandler((event) => handleFixture(event.req, deps));

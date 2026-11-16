@@ -185,9 +185,9 @@ flowchart LR
   <project> <app> <deploy-id>` prints the full build output. The builder
   repo is public, so its run log shows step names only; the output is
   sealed to Cloud's key.
-- **Background work.** A Project holds Apps and Postgres databases only,
-  so pg-boss workers and CronJobs (see "Components") have no place to run
-  on Cloud yet. Each App runs one web process in one pod.
+- **Background work.** pg-boss workers and cron jobs run from the App's
+  image as worker and cron Services ("Workers and cron jobs on Cloud"
+  below). Each App runs one web process in one pod.
 - **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
 - **Network.** The app reaches the internet over IPv4 only, from one
   address every App shares (`cloud help apps` prints it after
@@ -205,6 +205,71 @@ The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
 `CLOUD_DATABASE_CONNECTION_LIMIT` and `CLOUD_ACCESS` (`public` or
 `private`). `src/server/env.server.ts` reads all but `CLOUD_ACCESS`;
 `CLOUD_ACCESS` is the edge's setting, and the app does not read it.
+
+## Workers and cron jobs on Cloud
+
+Background work runs as two more kinds of Service in the Project File. Each
+one runs the image of the App named in `from`, from the same Deploy, with
+`command` in place of the web server:
+
+```yaml
+services:
+  web:
+    kind: app
+    connects: [db]
+    # repo, size and the rest as before
+  jobs:
+    kind: worker
+    from: web
+    command: [bun, entrypoints/worker.js]
+    size: nano
+  tick:
+    kind: cron
+    from: web
+    schedule: "*/5 * * * *"
+    command: [bun, entrypoints/tick.js]
+    size: nano
+```
+
+- **From.** `from` names the App whose image, Deploy and env the Service
+  takes, and it cannot change. To move a worker or cron job to another
+  App, remove the Service, apply, then add it again with the new `from`.
+- **Command.** `command` is an argv list, never a shell string: the
+  distroless image has no shell and no `sleep`. Add each entrypoint,
+  `src/entrypoints/<name>.ts`, to the `build:entrypoints` script in
+  `package.json`, and the image has it as `entrypoints/<name>.js` beside
+  `migrate.js`.
+- **Env.** The process gets exactly its App's env: the plain `env`, the
+  App's secrets, `DATABASE_URL` and `CLOUD_DATABASE_URL_<NAME>` for each
+  database the App `connects` to, the `CLOUD_*` names and
+  `SERVICE_VERSION`. Cloud adds `CLOUD_DATABASE_POOL_SIZE`, a whole number
+  of at least 1: the Postgres connections this process may open. Today a
+  worker and a cron run each get 1. Give your pool that `max`; pg-boss runs
+  on such a pool through `fromBunSql(createSqlClient(settings, { max }))`.
+- **Deploys.** A worker or cron job moves to each new image in the same
+  apply as its App's Deploy. It runs nothing until the App has a Deploy,
+  and it stops while the App is suspended. On a new Deploy the old worker
+  stops before the new one starts, so there is a short gap and never two
+  workers at once.
+- **Budget.** Its Size counts in the Budget, as an App's does.
+- **Worker.** A worker runs all the time, with no address, no port and no
+  health check. The App queues pg-boss jobs and the worker works them.
+  `cloud logs <project> <worker>` prints its log.
+- **Cron.** `schedule` has 5 fields in UTC: numbers, `*`, ranges, steps
+  and lists. Names such as `mon` and macros such as `@daily` are refused.
+  A scheduled start that comes while a run still runs is skipped and
+  recorded as `skipped`, and so is a run by hand asked for while a run
+  runs. A scheduled start that comes during a run by hand still starts, so
+  those two can run at the same time. A start that Kubernetes cannot make
+  within 1 minute of its time is skipped. A run is killed after 12 h. A
+  failed run records a `cron_failed` event in `cloud events <project>
+  <app>`.
+
+```sh
+cloud cron runs <project> <cron>             # start, end, exit code, status, logs command
+cloud cron run <project> <cron>              # one run now: starts within 1 min, or skipped if a run still runs
+cloud logs <project> <cron> --run <id>       # one run's log
+```
 
 ## The template and the infra path
 

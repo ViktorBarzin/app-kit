@@ -318,6 +318,11 @@ describe("applyVariant (the fixture)", () => {
 		expect(manifest.scripts["build:entrypoints"]).toContain(
 			"src/entrypoints/seed.ts",
 		);
+		// The worker and /enqueue use pg-boss; `bun install` locks it in the export.
+		expect(manifest.dependencies["pg-boss"]).toStartWith("^12.");
+		expect(Object.keys(manifest.dependencies)).toEqual(
+			Object.keys(manifest.dependencies).sort(),
+		);
 		const root = await readFile(join(target, "src/routes/__root.tsx"), "utf8");
 		expect(root).toContain("fixture-build-env");
 	});

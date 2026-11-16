@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { type BuiltServer, startBuiltServer } from "@viktorbarzin/auth/testing";
 import { migratedTestDatabase } from "@viktorbarzin/pg/testing";
+import { SQL } from "bun";
 
 import { app } from "#/app.config";
 
@@ -98,6 +99,25 @@ describe.skipIf(!built)("the fixture on the built server", () => {
 		expect(body.read.id).toBe(body.wrote.id);
 		expect(body.deleted).toBe(true);
 	});
+
+	test.skipIf(!adminUrl)(
+		"/enqueue queues a pg-boss job on queue fixture",
+		async () => {
+			const response = await fetch(`${server.origin}/enqueue`);
+			expect(response.status).toBe(200);
+			const { id } = (await response.json()) as { id: string };
+			const sql = new SQL(database?.url ?? "");
+			try {
+				const rows = await sql.unsafe(
+					"select name from pgboss.job where id = $1",
+					[id],
+				);
+				expect(rows).toEqual([{ name: "fixture" }]);
+			} finally {
+				await sql.close();
+			}
+		},
+	);
 
 	// Last: it ends the server.
 	test("/crash exits with code 42", async () => {

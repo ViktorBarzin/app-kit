@@ -109,6 +109,11 @@ are, except where this section says otherwise.
   shared address (`cloud help apps`). A request has 125 seconds to start
   its answer and a body of at most 100 MiB; a stream needs a message every
   30 seconds (`cloud help limits`).
+- **Background work.** A pg-boss worker or a cron job runs from this
+  App's image as a `worker` or `cron` Service in the Project File, with an
+  argv `command` such as `[bun, entrypoints/worker.js]` and its pool sized
+  to `CLOUD_DATABASE_POOL_SIZE`. Read "Workers and cron jobs on Cloud" in
+  app-kit's `docs/stack.md` before you add one.
 - **Connections.** The pod takes half the database's connection limit: the
   pool, plus one LISTEN connection when realtime is on. On a nano database realtime is off and lists refetch every `app.pollMs`;
   invalidate the query after a write, as `routes/index.tsx` does.
@@ -313,7 +318,8 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   that does not fit (`cloud help limits`). A small Postgres holds 2
   instances, a worker and a cron at pool 1. Without it the pod gets half of
   `CLOUD_DATABASE_CONNECTION_LIMIT`. More replicas or a CronJob multiply
-  this, so ask before adding either.
+  this, so ask before adding either. On Cloud a worker or cron job opens
+  `CLOUD_DATABASE_POOL_SIZE` connections (see On Cloud).
 - Migrations are additive: expand in one release, contract in a later one, so
   the previous image stays a working rollback.
 - The same rule covers server functions. A tab opened before a deploy keeps

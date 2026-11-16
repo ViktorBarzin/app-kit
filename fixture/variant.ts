@@ -74,6 +74,13 @@ export const fixtureVariant: TemplateVariant = {
 			replace:
 				'src/entrypoints/migrate.ts src/entrypoints/worker.ts src/entrypoints/tick.ts src/entrypoints/seed.ts"',
 		},
+		{
+			// /enqueue and the worker: pg-boss 12.38.2 has fromBunSql, which runs
+			// it on the template's Bun SQL pool. The export's `bun install` locks it.
+			path: "package.json",
+			find: '\t\t"prom-client": "',
+			replace: '\t\t"pg-boss": "^12.38.2",\n\t\t"prom-client": "',
+		},
 	],
 };
 
