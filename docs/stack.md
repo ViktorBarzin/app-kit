@@ -210,7 +210,8 @@ flowchart LR
   sealed to Cloud's key.
 - **Background work.** pg-boss workers and cron jobs run from the App's
   image as worker and cron Services ("Workers and cron jobs on Cloud"
-  below). Each App runs one web process in one pod.
+  below). Each App runs its web process in 1 to 3 pods (`instances`,
+  "Instances" below).
 - **Telemetry and Sentry** stay off, because Cloud sets no write key or DSN.
 - **Network.** The app reaches the internet over IPv4 only, from one
   address every App shares (`cloud help apps` prints it after
