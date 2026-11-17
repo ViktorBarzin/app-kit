@@ -354,7 +354,8 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   `data.map is not a function`). Add the new function or field first, and
   remove the old one in a later release. `bun run db:generate` writes
   them to `drizzle/`; the init container applies them under
-  `pg_advisory_lock`.
+  `pg_advisory_lock` (on Cloud, the migrate Job of each Deploy; see On
+  Cloud).
 - The identity tables come from `@viktorbarzin/auth/schema`. A change there is
   a major version of that package and needs a regenerated migration here.
 
