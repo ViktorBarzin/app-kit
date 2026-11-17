@@ -154,11 +154,11 @@ flowchart LR
   File whose processes need more than the Size gives and names the Size
   to pick (`cloud help limits`).
 
-| Size | Limit | App, 1 instance | App, 2 instances | App, 1 instance, a worker and a cron | App, 2 instances, a worker and a cron |
-|---|---|---|---|---|---|
-| nano | 4 | pool 1 | refused: small | refused: small | refused: small |
-| small | 10 | pool 4 | pool 1 | pool 3 | pool 1 |
-| medium | 20 | pool 4 | pool 4 | pool 4 | pool 3 |
+| Size | Limit | App, 1 instance | App, 1 instance and a worker or a cron | App, 2 instances | App, 1 instance, a worker and a cron | App, 2 instances, a worker and a cron |
+|---|---|---|---|---|---|---|
+| nano | 5 | pool 1 | pool 1 | refused: small | refused: small | refused: small |
+| small | 10 | pool 4 | pool 3 | pool 1 | pool 3 | pool 1 |
+| medium | 20 | pool 4 | pool 4 | pool 4 | pool 4 | pool 3 |
 
   Each pool is per App pod, with 1 `LISTEN` on top.
   A pod on an older `@viktorbarzin/pg` reads `CLOUD_DATABASE_CONNECTION_LIMIT`

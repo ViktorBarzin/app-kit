@@ -133,9 +133,13 @@ are, except where this section says otherwise.
   argv `command` such as `[bun, entrypoints/worker.js]` and its pool sized
   to `CLOUD_DATABASE_POOL_SIZE`. Read "Workers and cron jobs on Cloud" in
   app-kit's `docs/stack.md` before you add one.
-- **Connections.** The pod takes half the database's connection limit: the
-  pool, plus one LISTEN connection when realtime is on. On a nano database realtime is off and lists refetch every `app.pollMs`;
-  invalidate the query after a write, as `routes/index.tsx` does.
+- **Connections.** The pod's pool is `CLOUD_DATABASE_POOL_SIZE`, plus one
+  LISTEN connection for realtime. A nano Postgres (5 connections) holds
+  this App and one worker or cron at pool 1; with both, or with 2
+  instances, give the Postgres `size: small` (`cloud help limits`). Where
+  realtime is off (no pool size and a connection limit below 4), lists
+  refetch every `app.pollMs`; invalidate the query after a write, as
+  `routes/index.tsx` does.
 - **Deploys.** Cloud deploys each push to `master` within seconds (a
   Forgejo push webhook, which `cloud new` adds). To push without a
   Deploy, put `[skip cloud]` in the commit message. `cloud deploy
@@ -334,7 +338,8 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   (`connectionBudget()` in `env.server.ts`). Cloud counts each instance
   twice (during a rollout the old pods keep their connections until they
   stop), plus each worker and cron on the database, and refuses a Plan
-  that does not fit (`cloud help limits`). A small Postgres holds 2
+  that does not fit (`cloud help limits`). A nano Postgres holds 1
+  instance and one worker or cron at pool 1; a small one holds 2
   instances, a worker and a cron at pool 1. Without it the pod gets half of
   `CLOUD_DATABASE_CONNECTION_LIMIT`. More replicas or a CronJob multiply
   this, so ask before adding either. On Cloud a worker or cron job opens
