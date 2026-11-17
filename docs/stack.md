@@ -59,6 +59,15 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
   <address>` or `add webhook <url>` sends them on by email or as a
   Standard Webhooks POST signed with a `whsec_` secret shown once
   (`cloud help notifications`).
+- `cloud pg backups <project> <postgres>` lists the Postgres's backups:
+  a nightly dump kept 14 days, and the newest 5 manual ones, which `cloud
+  pg backup` takes now. `cloud pg restore <project> <postgres> --backup
+  <id> --into <new>` restores one into a new Postgres of the Project (a
+  Plan and an apply add it; it never writes into an existing database).
+  `cloud pg export <project> <postgres> -o db.dump` writes a `pg_dump` to
+  a file. `cloud pg rotate <project> <postgres>` sets a new password and
+  restarts the connected App, workers and crons with it, so the App must
+  read `DATABASE_URL` when it starts (`cloud help postgres`).
 - A commit message with `[skip cloud]` makes no Deploy, and
   `autoDeploy: false` in the Project File stops push Deploys.
 - `cloud deploy <project> <app> [--commit <sha>]` deploys by hand, `cloud
