@@ -140,6 +140,10 @@ are, except where this section says otherwise.
   realtime is off (no pool size and a connection limit below 4), lists
   refetch every `app.pollMs`; invalidate the query after a write, as
   `routes/index.tsx` does.
+- **Deleting.** `cloud projects delete <project>` stops the Project; for
+  7 days `cloud projects restore <project>` brings it back with its
+  database, then Cloud deletes it for good (`--purge` does that at once).
+  Never delete a Project to retry a failed apply: apply the file again.
 - **Deploys.** Cloud deploys each push to `master` within seconds (a
   Forgejo push webhook, which `cloud new` adds). To push without a
   Deploy, put `[skip cloud]` in the commit message. `cloud deploy

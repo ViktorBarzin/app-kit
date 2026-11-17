@@ -71,6 +71,12 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
 - A failed apply is retried by applying the Project File again, even
   unchanged, not by deleting the Project: a deleted Project's name is never
   given out again.
+- `cloud projects delete <project>` stops the Project within minutes, but
+  for 7 days `cloud projects restore <project>` brings it back on its last
+  Deploys with its databases; `cloud projects --deleted` lists what can be
+  restored. Meanwhile only its storage counts against your Budget. Then
+  Cloud deletes it and its data for good. `--purge` on the delete does that
+  at once (`cloud help projects`).
 - For a private app, `cloud invite <project> <app> <email>` adds a person to
   its allow list and prints a one-time sign-up code for someone with no
   homelab account.
