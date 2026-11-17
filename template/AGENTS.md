@@ -116,6 +116,15 @@ are, except where this section says otherwise.
   `migrate.ts` is (`build:entrypoints`), and it runs as
   `cloud run <project> <app> -- bun entrypoints/<name>.js`. It
   opens 1 database connection that the Plan does not count.
+- **Shell and SQL.** `cloud shell <project> <app>` opens `sh` in a running
+  instance (the image's busybox gives `env`, `ls`, `cat`, `grep`, `ps`, `cut`,
+  `head`, `tail`),
+  and `cloud psql <project> <postgres>` opens psql as the Postgres's own
+  role; `-c '<sql>'` runs one SQL text. Piped stdin runs as a script and
+  the command exits with its exit code; `--json` prints one document. Only
+  the owner opens one, at most 1 hour, closed after 15 minutes idle; each
+  is a `shell` or `psql` change. Changes made in a shell are lost when the
+  instance is replaced: put them in code and deploy.
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz` in the
   Project File, and `src/routes/healthz.ts` answers it. Cloud asks it on
   PORT every 10 s: a Deploy goes live only once it answers 2xx, and an

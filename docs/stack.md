@@ -61,6 +61,16 @@ package back, list it in `ignoreDeps` in `renovate.json`.
   the network lets only App pods reach it.
   `cloud jobs <project> <app> [<id>]` lists the last 20 with their exit
   codes, or prints one with its output.
+- `cloud shell <project> <app>` opens `sh` in a running instance, with its
+  env and secrets (`env` shows `DATABASE_URL`), and `cloud psql <project>
+  <postgres>` opens psql as that Postgres's own role, in a toolbox pod
+  Cloud starts for the session; `-c '<sql>'` runs one SQL text and exits.
+  With stdin piped they run it as a script and exit with its exit code,
+  and `--json` prints one document. Only the Project's owner opens one,
+  through `cloud login` or an Access Token made with `--allow-shell`. A
+  session lasts at most 1 hour, closes after 15 minutes idle, and is a
+  `shell` or `psql` change in `cloud changes`. `cloud help shell` has the
+  rest.
 - `cloud events <project> <app>` lists the App's history in time order:
   its Deploys (started, live, failed), restarts, suspends, skipped commits,
   applies and secret changes that touched it, and when it started crashing,
@@ -194,7 +204,8 @@ flowchart LR
   before it gets `SIGTERM`. Set it to the slowest request the app serves,
   so a Deploy cuts none off. Cloud waits by running `sleep` in the image;
   the template's distroless image carries static busybox, pinned by digest,
-  as `/usr/local/bin/busybox` with `sleep` and `sh` linked to it, and an
+  as `/usr/local/bin/busybox` with `sleep`, `sh`, `env`, `ls`, `cat`,
+  `grep`, `ps`, `cut`, `head` and `tail` linked to it (`sh` is what `cloud shell` runs), and an
   image without `sleep` gets `SIGTERM` at once.
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz`, which
   the template's `/healthz` answers with a static ok. A Deploy goes live
