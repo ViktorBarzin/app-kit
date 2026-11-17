@@ -5,6 +5,7 @@ import { withFrameDenial } from "@viktorbarzin/runtime";
 
 import { app } from "#/app.config";
 import { appAuth } from "#/server/auth.server";
+import { raiseIdleTimeout } from "#/server/request-idle.server";
 
 const accessLog = getLogger(`${app.slug}.http`);
 const label = createHandlerLabeler({
@@ -12,7 +13,8 @@ const label = createHandlerLabeler({
 });
 
 /**
- * Every request: Bun's idle timeout raised from 10 s, in-flight tracking for
+ * Every request: Bun's idle timeout raised from 10 s to its maximum, 255 s
+ * (request-idle.server.ts), in-flight tracking for
  * graceful shutdown, request metrics and one access-log line for /api calls.
  * The request runs in its own log context, so `enduser.id` set once the
  * session is known (auth.server.ts, requireMember) is on every later line of
@@ -23,6 +25,7 @@ const label = createHandlerLabeler({
 const observe = createMiddleware().server(({ request, next }) =>
 	withLogContext({}, async () => {
 		const done = observeRequest(request, { label, accessLog });
+		raiseIdleTimeout(request);
 		let status = 500;
 		try {
 			const result = await next();
