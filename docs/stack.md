@@ -462,6 +462,12 @@ No app runs its own database pod.
   `migrate` init container applies them from the same image, under
   `pg_advisory_lock`. Keep them additive: expand in one release and contract
   in a later one, so the previous image still works as a rollback.
+- **Extensions.** The app's role owns its database but is no superuser, so a
+  migration may `CREATE EXTENSION IF NOT EXISTS` only a trusted extension:
+  `vector` (pgvector 0.8.7), `pg_trgm`, `pgcrypto`, `citext`, `uuid-ossp`,
+  `hstore`, `ltree`, `unaccent`, `fuzzystrmatch`, `btree_gin`,
+  `btree_gist` and the other trusted contrib modules. PostGIS is
+  superuser-only and not available to Cloud Projects.
 - **Backups.** A daily `pg_dump` per database, kept for 14 days. There is no
   point-in-time recovery.
 - **Passwords.** Vault rotates each app's password weekly. The app reads it
