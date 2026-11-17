@@ -1,6 +1,6 @@
 /**
  * pg-busy.ts for a cron run (tick.js), which has no App pool: it opens one
- * pool of CLOUD_DATABASE_POOL_SIZE connections (boss.ts's rule, 2 when
+ * pool of CLOUD_DATABASE_POOL_SIZE connections (boss.ts's rule, 1 when
  * unset), holds them for CRON_HOLD_MS and closes it. The worker runs
  * pg-busy on its own pg-boss pool instead (worker.ts). Nothing runs without
  * FIXTURE_PG_BUSY or DATABASE_URL.

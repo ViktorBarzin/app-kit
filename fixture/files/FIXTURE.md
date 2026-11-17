@@ -55,6 +55,6 @@ it migrates, so the Deploy fails).
 Postgres connection the process may open busy with `select
 pg_sleep(<seconds>)`: the App on its own pool from boot, `worker.js` on
 its pg-boss pool until it stops, and each `tick.js` run for 60 s on a
-pool of `CLOUD_DATABASE_POOL_SIZE` connections (2 when unset) before it
+pool of `CLOUD_DATABASE_POOL_SIZE` connections (1 when unset) before it
 logs `tick`. A query that fails logs `pg-busy-error` with Postgres's
 message, such as `too many connections for role`.
