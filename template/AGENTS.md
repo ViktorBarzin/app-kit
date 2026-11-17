@@ -55,8 +55,8 @@ are, except where this section says otherwise.
 - **Dependency updates.** If Renovate is on for the repo (`cloud new`
   turns it on), it opens one pull request a week on `renovate/all` with
   every update, majors too. Cloud builds it without deploying it and sets
-  the commit status `cloud/build`; Renovate merges it once that is
-  success, and the merge deploys like any push. Leave that branch to
+  the commit status `cloud/build`; Renovate merges it once every status
+  on it is success, and the merge deploys like any push. Leave that branch to
   Renovate. Keep `bun run check`, the typecheck and the build green, since a
   failing build holds every update back. List a package in `ignoreDeps` in
   `renovate.json` to hold it back; `cloud renovate disable <project> <app>`

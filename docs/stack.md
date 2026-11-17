@@ -35,8 +35,9 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
 off). Once a week, early on Monday (UTC), Renovate opens one pull request
 with every dependency update, majors too. Cloud builds that branch as a
 check build that never deploys and sets the commit status `cloud/build`;
-Renovate merges the pull request only after it is success, and the merge
-deploys like any push. A new version that fails its health check does not
+Renovate merges the pull request only when every commit status on it is
+success, `cloud/build` among them (other CI on the repo counts too), and
+the merge deploys like any push. A new version that fails its health check does not
 go live, so the version before keeps serving. `cloud renovate enable
 <project> <app>` turns it on for an older App, `cloud renovate disable`
 turns it off, and `cloud help updates` has the details. To hold one
