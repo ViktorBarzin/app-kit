@@ -33,8 +33,12 @@ export const CRASH_EXIT_CODE = 42;
  */
 export const TCP_TIMEOUT_MS = 4_000;
 
-/** /fetch gives up after this long. */
-export const FETCH_TIMEOUT_MS = 10_000;
+/**
+ * /fetch gives up after this long: under the server's 10 s idle timeout, so
+ * a target that never answers gets `{connected: false, error: "timeout"}`
+ * and not a connection the server closed (the edge then answers 502).
+ */
+export const FETCH_TIMEOUT_MS = 8_000;
 
 /** /sse ends its stream after this long. */
 export const SSE_MAX_MS = 15 * 60_000;
@@ -44,6 +48,11 @@ export const LOG_MAX_LINES = 200;
 
 /** /log's `level`: the word each line starts with, upper-cased, as `cloud logs --level` reads it. */
 const LOG_LEVELS = new Set(["error", "warn", "info"]);
+
+export type LogLevel = "error" | "warn" | "info";
+
+const isLogLevel = (value: string | null): value is LogLevel =>
+	value !== null && LOG_LEVELS.has(value);
 
 /** The most MiB one /fill call writes. */
 export const FILL_MAX_MIB = 256;
@@ -92,8 +101,11 @@ export interface FixtureDeps {
 	writeItem: ((title: string) => Promise<ItemRow>) | null;
 	readItem: ((id: string) => Promise<ItemRow | null>) | null;
 	deleteItem: ((id: string) => Promise<boolean>) | null;
-	/** Writes one line to the App's log. */
-	log: (line: string) => void;
+	/**
+	 * Writes one line to the App's log, at `level` when given (the built
+	 * server's JSON console records it as that line's severity_text).
+	 */
+	log: (line: string, level?: LogLevel) => void;
 	/** How long /sse streams; SSE_MAX_MS unless a test sets it. */
 	sseLimitMs?: number;
 	connect: (
@@ -242,11 +254,15 @@ function log(deps: FixtureDeps, url: URL): Response {
 			"n must be a whole number and tag 1-40 of a-z, 0-9 and -",
 		);
 	const level = url.searchParams.get("level");
-	if (level !== null && !LOG_LEVELS.has(level))
+	if (level !== null && !isLogLevel(level))
 		return fail(400, "bad_log_request", "level must be error, warn or info");
 	const prefix = level === null ? "" : `${level.toUpperCase()} `;
 	const count = Math.min(n, LOG_MAX_LINES);
-	for (let i = 1; i <= count; i++) deps.log(`${prefix}fixture-log ${tag} ${i}`);
+	for (let i = 1; i <= count; i++)
+		deps.log(
+			`${prefix}fixture-log ${tag} ${i}`,
+			isLogLevel(level) ? level : undefined,
+		);
 	return json({ logged: count, tag, level });
 }
 
@@ -336,12 +352,17 @@ async function tcp(deps: FixtureDeps, url: URL): Promise<Response> {
 	});
 }
 
-async function fetchStatus(deps: FixtureDeps, url: URL): Promise<Response> {
+async function fetchStatus(
+	request: Request,
+	deps: FixtureDeps,
+	url: URL,
+): Promise<Response> {
 	const allowed = fetchAllowed(
 		url.searchParams.get("url") ?? "",
 		ownOrigins(deps.env),
 	);
 	if (!allowed.ok) return fail(400, "not_allowed", allowed.reason);
+	deps.keepOpen(request);
 	const started = performance.now();
 	try {
 		const answer = await deps.fetch(allowed.url, {
@@ -543,7 +564,7 @@ export async function handleFixture(
 		case "/tcp":
 			return tcp(deps, url);
 		case "/fetch":
-			return fetchStatus(deps, url);
+			return fetchStatus(request, deps, url);
 		case "/log":
 			return log(deps, url);
 		case "/build-assets":

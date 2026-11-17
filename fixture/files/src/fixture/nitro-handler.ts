@@ -147,7 +147,12 @@ const deps: FixtureDeps = {
 	writeItem: databaseConfigured() ? writeItem : null,
 	readItem: databaseConfigured() ? readItem : null,
 	deleteItem: databaseConfigured() ? deleteItem : null,
-	log: (line) => console.log(line),
+	// console.error and console.warn: the JSON console records their level.
+	log: (line, level) => {
+		if (level === "error") console.error(line);
+		else if (level === "warn") console.warn(line);
+		else console.log(line);
+	},
 	connect,
 	fetch: (url, init) => fetch(url, init),
 	allocate,

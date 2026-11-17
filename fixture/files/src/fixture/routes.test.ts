@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 
 import {
+	FETCH_TIMEOUT_MS,
 	FILL_DEFAULT_MAX_MIB,
 	type FillDb,
 	type FixtureDeps,
@@ -579,7 +580,40 @@ describe("/log level", () => {
 		]);
 	});
 
+	test("the level reaches the log writer, so the JSON console records it", async () => {
+		const seen: [string, string | undefined][] = [];
+		await get(
+			"/log?n=1&tag=p63-lvl&level=error",
+			deps({ log: (line, level) => seen.push([line, level]) }),
+		);
+		await get(
+			"/log?n=1&tag=plain",
+			deps({ log: (line, level) => seen.push([line, level]) }),
+		);
+		expect(seen).toEqual([
+			["ERROR fixture-log p63-lvl 1", "error"],
+			["fixture-log plain 1", undefined],
+		]);
+	});
+
 	test("an unknown level is refused", async () => {
 		expect((await get("/log?n=1&tag=x&level=debug", deps())).status).toBe(400);
+	});
+});
+
+describe("/fetch stays open", () => {
+	test("it lifts the idle timeout, and gives up before the server's 10 s", async () => {
+		let kept = 0;
+		const response = await get(
+			"/fetch?url=https%3A%2F%2Ffx.example%2Finfo",
+			deps({
+				keepOpen: () => {
+					kept += 1;
+				},
+			}),
+		);
+		expect(response.status).toBe(200);
+		expect(kept).toBe(1);
+		expect(FETCH_TIMEOUT_MS).toBeLessThan(10_000);
 	});
 });
