@@ -417,19 +417,31 @@ function fillLock(): { busy: boolean } {
 
 /**
  * Only with FIXTURE_FILL=on: /fill?mb=N writes N MiB (1 to FILL_MAX_MIB),
- * one call at a time, and refuses a write that would take the database past
- * its stop size; /fill?clear=1 drops the table.
+ * one call at a time with the idle timeout lifted, and refuses a write that
+ * would take the database past its stop size (409 fill_limit, with
+ * databaseMib and maxMib); /fill?status=1 answers {databaseMib, maxMib,
+ * busy}; /fill?clear=1 drops the table.
  */
-async function fill(deps: FixtureDeps, url: URL): Promise<Response> {
+async function fill(
+	request: Request,
+	deps: FixtureDeps,
+	url: URL,
+): Promise<Response> {
 	const settings = fillSettings(deps.env);
 	if (!settings.on)
 		return fail(404, "not_found", "/fill is off: set FIXTURE_FILL=on");
 	if (!deps.fill)
 		return fail(503, "no_database", "the App has no DATABASE_URL");
 	const lock = fillLock();
+	const db = deps.fill;
+	if (url.searchParams.get("status") === "1")
+		return json({
+			databaseMib: await db.databaseMib(),
+			maxMib: settings.maxMib,
+			busy: lock.busy,
+		});
 	if (lock.busy)
 		return fail(409, "fill_busy", "another /fill is running; try again");
-	const db = deps.fill;
 	if (url.searchParams.get("clear") === "1") {
 		lock.busy = true;
 		try {
@@ -451,11 +463,19 @@ async function fill(deps: FixtureDeps, url: URL): Promise<Response> {
 	try {
 		const before = await db.databaseMib();
 		if (before + mib > settings.maxMib)
-			return fail(
+			return json(
+				{
+					error: {
+						code: "fill_limit",
+						message: `the database is ${before} MiB; ${mib} more would pass the ${settings.maxMib} MiB stop (FIXTURE_FILL_MAX_MIB)`,
+					},
+					databaseMib: before,
+					maxMib: settings.maxMib,
+				},
 				409,
-				"fill_limit",
-				`the database is ${before} MiB; ${mib} more would pass the ${settings.maxMib} MiB stop (FIXTURE_FILL_MAX_MIB)`,
 			);
+		// A write of 256 MiB takes longer than the server's idle timeout.
+		deps.keepOpen(request);
 		await db.write(mib);
 		const after = await db.databaseMib();
 		deps.log(`fixture-fill ${mib} MiB, database ${after} MiB`);
@@ -574,7 +594,7 @@ export async function handleFixture(
 				return fail(503, "no_database", "the App has no DATABASE_URL");
 			return json({ id: await deps.enqueue() });
 		case "/fill":
-			return fill(deps, url);
+			return fill(request, deps, url);
 	}
 	if (url.pathname.startsWith("/sink/")) return sink(request, deps, url);
 	if (LATER.some((pattern) => pattern.test(url.pathname)))

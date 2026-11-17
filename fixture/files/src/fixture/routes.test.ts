@@ -451,6 +451,38 @@ describe("/fill", () => {
 		).toBe(200);
 	});
 
+	test("status=1 answers the size, the stop and whether a fill runs", async () => {
+		const response = await get("/fill?status=1", on(fakeFill(300)));
+		expect(await response.json()).toEqual({
+			databaseMib: 300,
+			maxMib: FILL_DEFAULT_MAX_MIB,
+			busy: false,
+		});
+	});
+
+	test("a write lifts the idle timeout; a refusal at the stop says the size", async () => {
+		let kept = 0;
+		const ok = await get(
+			"/fill?mb=10",
+			deps({
+				env: { FIXTURE_FILL: "on" },
+				fill: fakeFill(),
+				keepOpen: () => {
+					kept += 1;
+				},
+			}),
+		);
+		expect(ok.status).toBe(200);
+		expect(kept).toBe(1);
+		const full = await get("/fill?mb=200", on(fakeFill(800)));
+		expect(full.status).toBe(409);
+		expect(await full.json()).toMatchObject({
+			error: { code: "fill_limit" },
+			databaseMib: 800,
+			maxMib: FILL_DEFAULT_MAX_MIB,
+		});
+	});
+
 	test("one fill at a time", async () => {
 		let release = () => {};
 		const slow: FillDb = {
