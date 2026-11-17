@@ -31,6 +31,17 @@ Each later push to `master` builds and deploys. `cloud new` adds a Forgejo
 push webhook to the repo, so a push deploys within seconds; `cloud webhook
 <project> <app>` adds it to an older App.
 
+`cloud new` also turns on Renovate for the repo (`--no-renovate` leaves it
+off). Once a week, early on Monday (UTC), Renovate opens one pull request
+with every dependency update, majors too. Cloud builds that branch as a
+check build that never deploys and sets the commit status `cloud/build`;
+Renovate merges the pull request only after it is success, and the merge
+deploys like any push. A new version that fails its health check does not
+go live, so the version before keeps serving. `cloud renovate enable
+<project> <app>` turns it on for an older App, `cloud renovate disable`
+turns it off, and `cloud help updates` has the details. To hold one
+package back, list it in `ignoreDeps` in `renovate.json`.
+
 - `cloud deploys <project> <app>` lists the Deploys with what started each
   one and how long it took, and says what holds one up ("Build logs"
   below).
@@ -608,8 +619,10 @@ flowchart TD
 - The Deployment uses `Recreate` and 1 replica, so one pod holds the
   `LISTEN` connection and writes at a time. A deploy takes about 17 seconds
   of downtime.
-- Renovate commits dependency updates straight to `master`. It waits 3 days
-  before it takes a new npm release.
+- Off Cloud, infra's `renovate-apps` job commits dependency updates
+  straight to `master`. It waits 3 days before it takes a new npm release.
+  On Cloud, updates come as one weekly pull request that merges after
+  Cloud's check build passed ("Running on Cloud" above).
 - TanStack Start and Router are pinned to exact versions and upgraded
   together, because Start ships breaking changes in minor and patch releases.
   The app's tests run before the deploy job and stop a breaking bump.

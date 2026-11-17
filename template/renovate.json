@@ -1,16 +1,18 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"description": "The job that runs Renovate sets the policy. On Cloud: one pull request a week with every update, majors too, merged once Cloud's check build (status cloud/build) passed (`cloud help updates`). Off Cloud: infra's renovate-apps job lands each update on master. Every update merges without review; list a package in ignoreDeps to hold it back.",
 	"extends": ["config:recommended"],
+	"automerge": true,
 	"minimumReleaseAge": "3 days",
+	"ignoreDeps": [],
 	"packageRules": [
 		{
-			"description": "TanStack Start and Router ship breaking changes in minors and patches: exact pins, proposed for manual approval (ADR-0001, Dependency updates).",
+			"description": "TanStack Start and Router ship breaking changes in minors and patches: exact pins, so each bump is one commit the build checks (ADR-0001, Dependency updates).",
 			"matchPackageNames": [
 				"/^@tanstack/.*start.*/",
 				"/^@tanstack/.*router.*/"
 			],
-			"rangeStrategy": "pin",
-			"dependencyDashboardApproval": true
+			"rangeStrategy": "pin"
 		},
 		{
 			"description": "Our own packages skip the 3-day wait.",

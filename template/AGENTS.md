@@ -52,6 +52,15 @@ are, except where this section says otherwise.
   `requireMember` answers 401: serve what they need on routes that need no
   user. To call an internal App from this one, read its URL from
   `CLOUD_URL_<NAME>` on the server.
+- **Dependency updates.** If Renovate is on for the repo (`cloud new`
+  turns it on), it opens one pull request a week on `renovate/all` with
+  every update, majors too. Cloud builds it without deploying it and sets
+  the commit status `cloud/build`; Renovate merges it once that is
+  success, and the merge deploys like any push. Leave that branch to
+  Renovate. Keep `bun run check`, the typecheck and the build green, since a
+  failing build holds every update back. List a package in `ignoreDeps` in
+  `renovate.json` to hold it back; `cloud renovate disable <project> <app>`
+  turns Renovate off.
 - **Two 401s.** A 401 with `sign_in_required` comes from Cloud's edge (a
   private App and no sign-in); a 401 with `unauthorized` comes from this
   app's own code (`requireMember` with no user).
