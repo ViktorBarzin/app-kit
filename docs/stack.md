@@ -31,6 +31,18 @@ Each later push to `master` builds and deploys. `cloud new` adds a Forgejo
 push webhook to the repo, so a push deploys within seconds; `cloud webhook
 <project> <app>` adds it to an older App.
 
+`cloud new` also turns on Renovate for the repo (`--no-renovate` leaves it
+off). Once a week, early on Monday (UTC), Renovate opens one pull request
+with every dependency update, majors too. Cloud builds that branch as a
+check build that never deploys and sets the commit status `cloud/build`;
+Renovate merges the pull request only when every commit status on it is
+success, `cloud/build` among them (other CI on the repo counts too), and
+the merge deploys like any push. A new version that fails its health check does not
+go live, so the version before keeps serving. `cloud renovate enable
+<project> <app>` turns it on for an older App, `cloud renovate disable`
+turns it off, and `cloud help updates` has the details. To hold one
+package back, list it in `ignoreDeps` in `renovate.json`.
+
 - `cloud deploys <project> <app>` lists the Deploys with what started each
   one and how long it took, and says what holds one up ("Build logs"
   below).
@@ -49,6 +61,16 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
   the network lets only App pods reach it.
   `cloud jobs <project> <app> [<id>]` lists the last 20 with their exit
   codes, or prints one with its output.
+- `cloud shell <project> <app>` opens `sh` in a running instance, with its
+  env and secrets (`env` shows `DATABASE_URL`), and `cloud psql <project>
+  <postgres>` opens psql as that Postgres's own role, in a toolbox pod
+  Cloud starts for the session; `-c '<sql>'` runs one SQL text and exits.
+  With stdin piped they run it as a script and exit with its exit code,
+  and `--json` prints one document. Only the Project's owner opens one,
+  through `cloud login` or an Access Token made with `--allow-shell`. A
+  session lasts at most 1 hour, closes after 15 minutes idle, and is a
+  `shell` or `psql` change in `cloud changes`. `cloud help shell` has the
+  rest.
 - `cloud events <project> <app>` lists the App's history in time order:
   its Deploys (started, live, failed), restarts, suspends, skipped commits,
   applies and secret changes that touched it, and when it started crashing,
@@ -59,6 +81,15 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
   <address>` or `add webhook <url>` sends them on by email or as a
   Standard Webhooks POST signed with a `whsec_` secret shown once
   (`cloud help notifications`).
+- `cloud pg backups <project> <postgres>` lists the Postgres's backups:
+  a nightly dump kept 14 days, and the newest 5 manual ones, which `cloud
+  pg backup` takes now. `cloud pg restore <project> <postgres> --backup
+  <id> --into <new>` restores one into a new Postgres of the Project (a
+  Plan and an apply add it; it never writes into an existing database).
+  `cloud pg export <project> <postgres> -o db.dump` writes a `pg_dump` to
+  a file. `cloud pg rotate <project> <postgres>` sets a new password and
+  restarts the connected App, workers and crons with it, so the App must
+  read `DATABASE_URL` when it starts (`cloud help postgres`).
 - A commit message with `[skip cloud]` makes no Deploy, and
   `autoDeploy: false` in the Project File stops push Deploys.
 - `cloud deploy <project> <app> [--commit <sha>]` deploys by hand, `cloud
@@ -71,6 +102,12 @@ push webhook to the repo, so a push deploys within seconds; `cloud webhook
 - A failed apply is retried by applying the Project File again, even
   unchanged, not by deleting the Project: a deleted Project's name is never
   given out again.
+- `cloud projects delete <project>` stops the Project within minutes, but
+  for 7 days `cloud projects restore <project>` brings it back on its last
+  Deploys with its databases; `cloud projects --deleted` lists what can be
+  restored. Meanwhile only its storage counts against your Budget. Then
+  Cloud deletes it and its data for good. `--purge` on the delete does that
+  at once (`cloud help projects`).
 - For a private app, `cloud invite <project> <app> <email>` adds a person to
   its allow list and prints a one-time sign-up code for someone with no
   homelab account.
@@ -176,7 +213,8 @@ flowchart LR
   before it gets `SIGTERM`. Set it to the slowest request the app serves,
   so a Deploy cuts none off. Cloud waits by running `sleep` in the image;
   the template's distroless image carries static busybox, pinned by digest,
-  as `/usr/local/bin/busybox` with `sleep` and `sh` linked to it, and an
+  as `/usr/local/bin/busybox` with `sleep`, `sh`, `env`, `ls`, `cat`,
+  `grep`, `ps`, `cut`, `head` and `tail` linked to it (`sh` is what `cloud shell` runs), and an
   image without `sleep` gets `SIGTERM` at once.
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz`, which
   the template's `/healthz` answers with a static ok. A Deploy goes live
@@ -608,8 +646,10 @@ flowchart TD
 - The Deployment uses `Recreate` and 1 replica, so one pod holds the
   `LISTEN` connection and writes at a time. A deploy takes about 17 seconds
   of downtime.
-- Renovate commits dependency updates straight to `master`. It waits 3 days
-  before it takes a new npm release.
+- Off Cloud, infra's `renovate-apps` job commits dependency updates
+  straight to `master`. It waits 3 days before it takes a new npm release.
+  On Cloud, updates come as one weekly pull request that merges after
+  Cloud's check build passed ("Running on Cloud" above).
 - TanStack Start and Router are pinned to exact versions and upgraded
   together, because Start ships breaking changes in minor and patch releases.
   The app's tests run before the deploy job and stop a breaking bump.
