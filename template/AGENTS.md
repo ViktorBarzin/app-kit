@@ -52,6 +52,15 @@ are, except where this section says otherwise.
   `requireMember` answers 401: serve what they need on routes that need no
   user. To call an internal App from this one, read its URL from
   `CLOUD_URL_<NAME>` on the server.
+- **Dependency updates.** If Renovate is on for the repo (`cloud new`
+  turns it on), it opens one pull request a week on `renovate/all` with
+  every update, majors too. Cloud builds it without deploying it and sets
+  the commit status `cloud/build`; Renovate merges it once every status
+  on it is success, and the merge deploys like any push. Leave that branch to
+  Renovate. Keep `bun run check`, the typecheck and the build green, since a
+  failing build holds every update back. List a package in `ignoreDeps` in
+  `renovate.json` to hold it back; `cloud renovate disable <project> <app>`
+  turns Renovate off.
 - **Two 401s.** A 401 with `sign_in_required` comes from Cloud's edge (a
   private App and no sign-in); a 401 with `unauthorized` comes from this
   app's own code (`requireMember` with no user).
@@ -107,6 +116,15 @@ are, except where this section says otherwise.
   `migrate.ts` is (`build:entrypoints`), and it runs as
   `cloud run <project> <app> -- bun entrypoints/<name>.js`. It
   opens 1 database connection that the Plan does not count.
+- **Shell and SQL.** `cloud shell <project> <app>` opens `sh` in a running
+  instance (the image's busybox gives `env`, `ls`, `cat`, `grep`, `ps`, `cut`,
+  `head`, `tail`),
+  and `cloud psql <project> <postgres>` opens psql as the Postgres's own
+  role; `-c '<sql>'` runs one SQL text. Piped stdin runs as a script and
+  the command exits with its exit code; `--json` prints one document. Only
+  the owner opens one, at most 1 hour, closed after 15 minutes idle; each
+  is a `shell` or `psql` change. Changes made in a shell are lost when the
+  instance is replaced: put them in code and deploy.
 - **Health check.** `cloud new` sets `healthCheckPath: /healthz` in the
   Project File, and `src/routes/healthz.ts` answers it. Cloud asks it on
   PORT every 10 s: a Deploy goes live only once it answers 2xx, and an
@@ -148,6 +166,10 @@ are, except where this section says otherwise.
   Postgres a new password and restarts the App with it. The template
   reads `DATABASE_URL` at start, so it needs no change (`cloud help
   postgres`).
+- **Deleting.** `cloud projects delete <project>` stops the Project; for
+  7 days `cloud projects restore <project>` brings it back with its
+  database, then Cloud deletes it for good (`--purge` does that at once).
+  Never delete a Project to retry a failed apply: apply the file again.
 - **Deploys.** Cloud deploys each push to `master` within seconds (a
   Forgejo push webhook, which `cloud new` adds). To push without a
   Deploy, put `[skip cloud]` in the commit message. `cloud deploy
@@ -362,7 +384,8 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   `data.map is not a function`). Add the new function or field first, and
   remove the old one in a later release. `bun run db:generate` writes
   them to `drizzle/`; the init container applies them under
-  `pg_advisory_lock`.
+  `pg_advisory_lock` (on Cloud, the migrate Job of each Deploy; see On
+  Cloud).
 - The identity tables come from `@viktorbarzin/auth/schema`. A change there is
   a major version of that package and needs a regenerated migration here.
 
