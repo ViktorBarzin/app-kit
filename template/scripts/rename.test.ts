@@ -182,10 +182,16 @@ describe("rename", () => {
 
 	test("a 50-character slug leaves a tree that passes biome check (round 7)", async () => {
 		const dir = await copyTemplate();
-		// As export-template.ts writes it: the repo root's config, standalone.
-		const root = JSON.parse(
-			await readFile(resolve(TEMPLATE, "../biome.json"), "utf8"),
+		// The standalone config an App repo has: in app-kit the template's
+		// biome.json extends the repo root's ("root": false), and
+		// export-template.ts writes that root config into the exported repo.
+		const own = JSON.parse(
+			await readFile(resolve(TEMPLATE, "biome.json"), "utf8"),
 		);
+		const root =
+			own.root === false
+				? JSON.parse(await readFile(resolve(TEMPLATE, "../biome.json"), "utf8"))
+				: own;
 		await writeFile(
 			join(dir, "biome.json"),
 			`${JSON.stringify({ ...root, vcs: { enabled: false } }, null, "\t")}\n`,
