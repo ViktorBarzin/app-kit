@@ -146,6 +146,11 @@ are, except where this section says otherwise.
   shared address (`cloud help apps`). A request has 125 seconds to start
   its answer and a body of at most 100 MiB; a stream needs a message every
   30 seconds (`cloud help limits`).
+- **Files.** Nothing on disk lasts: `/tmp` (512 MiB) is wiped at every
+  Deploy and restart, and each instance has its own. Keep small files in
+  Postgres (`bytea`, a few MB each at most; they count against its
+  Size's disk). A Bucket kind for larger files is coming. An upload's
+  request body may be at most 100 MiB.
 - **Background work.** A pg-boss worker or a cron job runs from this
   App's image as a `worker` or `cron` Service in the Project File, with an
   argv `command` such as `[bun, entrypoints/worker.js]` and its pool sized
@@ -371,9 +376,14 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   that does not fit (`cloud help limits`). A nano Postgres holds 1
   instance and one worker or cron at pool 1; a small one holds 2
   instances, a worker and a cron at pool 1. Without it the pod gets half of
-  `CLOUD_DATABASE_CONNECTION_LIMIT`. More replicas or a CronJob multiply
-  this, so ask before adding either. On Cloud a worker or cron job opens
-  `CLOUD_DATABASE_POOL_SIZE` connections (see On Cloud).
+  `CLOUD_DATABASE_CONNECTION_LIMIT`. On Cloud, more instances, a worker
+  or a cron is self-service: add it to the Project File and run `cloud
+  plan`. The Plan checks every process against the Size's connections,
+  refuses one that does not fit and names the Size that holds it, so
+  there is no one to ask. A worker or cron job opens
+  `CLOUD_DATABASE_POOL_SIZE` connections (see On Cloud). Off Cloud, on a
+  homelab deploy with a fixed budget of 5 per pod, more replicas or a
+  CronJob multiply this, so ask the infra owner before adding either.
 - Migrations are additive: expand in one release, contract in a later one, so
   the previous image stays a working rollback.
 - The same rule covers server functions. A tab opened before a deploy keeps

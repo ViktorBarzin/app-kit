@@ -155,7 +155,7 @@ flowchart LR
   E -- "/oauth2/auth subrequest" --> O[oauth2-proxy]
   E -- "/oauth2/*" --> O
   E -- "X-Cloud-User-* + X-Cloud-Edge-Secret" --> A["App, createCloudAuth"]
-  A --> PG[("Project Postgres<br/>connection limit 4, 10 or 20")]
+  A --> PG[("Project Postgres<br/>connection limit 5, 10 or 20")]
 ```
 
 - **Identity.** The edge signs people in and sends `X-Cloud-User-Id`,
