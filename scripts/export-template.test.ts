@@ -301,6 +301,8 @@ describe("applyVariant (the fixture)", () => {
 			"src/fixture/routes.ts",
 			"src/fixture/nitro-handler.ts",
 			"src/fixture/ws.ts",
+			"src/fixture/kv.ts",
+			"src/fixture/kv-redis.ts",
 			"src/entrypoints/worker.ts",
 			"src/entrypoints/tick.ts",
 			"src/entrypoints/seed.ts",
@@ -327,6 +329,9 @@ describe("applyVariant (the fixture)", () => {
 		);
 		// The worker and /enqueue use pg-boss; `bun install` locks it in the export.
 		expect(manifest.dependencies["pg-boss"]).toStartWith("^12.");
+		// /kv-selftest runs a BullMQ job; the template has it as a dev dependency only.
+		expect(manifest.dependencies.bullmq).toStartWith("^6.");
+		expect(manifest.devDependencies.bullmq).toBeUndefined();
 		expect(Object.keys(manifest.dependencies)).toEqual(
 			Object.keys(manifest.dependencies).sort(),
 		);

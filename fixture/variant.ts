@@ -89,6 +89,18 @@ export const fixtureVariant: TemplateVariant = {
 			replace: '\t\t"pg-boss": "^12.38.2",\n\t\t"prom-client": "',
 		},
 		{
+			// /kv-selftest runs a BullMQ job (kv-redis.ts): the template has
+			// BullMQ only for its createRedis test; the fixture needs it at run time.
+			path: "package.json",
+			find: '\t\t"bullmq": "^6.7.7",\n',
+			replace: "",
+		},
+		{
+			path: "package.json",
+			find: '\t\t"class-variance-authority": "',
+			replace: '\t\t"bullmq": "^6.7.7",\n\t\t"class-variance-authority": "',
+		},
+		{
 			// P10: the migrate step prints MIGRATION_LOG and exits with MIGRATION_EXIT (knobs.ts).
 			path: "src/entrypoints/migrate.ts",
 			find: 'import { serviceInfo } from "#/server/env.server";\n',

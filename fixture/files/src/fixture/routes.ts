@@ -12,6 +12,7 @@ import {
 	slowSeconds,
 	tcpAllowed,
 } from "./guard";
+import { handleKv, KV_PATHS, type KvDeps } from "./kv";
 import {
 	readLimited,
 	SINK_MAX_BODY,
@@ -124,6 +125,8 @@ export interface FixtureDeps {
 	fill: FillDb | null;
 	/** The webhook sink's store; the process's own unless a test sets one. */
 	sink?: SinkStore;
+	/** The Key Value routes' Redis work (kv.ts); null or absent without REDIS_URL. */
+	kv?: KvDeps | null;
 }
 
 interface FixtureState {
@@ -529,12 +532,7 @@ async function sink(
 	return json({ stored: kept.n }, kept.answered);
 }
 
-const LATER = [
-	/^\/kv-selftest$/,
-	/^\/upload$/,
-	/^\/files\/[^/]+$/,
-	/^\/probe\/(pg|kv|s3)$/,
-];
+const LATER = [/^\/upload$/, /^\/files\/[^/]+$/, /^\/probe\/(pg|s3)$/];
 
 /**
  * Whether /healthz answers 200: the template's /healthz route asks this
@@ -597,6 +595,8 @@ export async function handleFixture(
 			return fill(request, deps, url);
 	}
 	if (url.pathname.startsWith("/sink/")) return sink(request, deps, url);
+	if (KV_PATHS.has(url.pathname))
+		return handleKv(request, deps.kv ?? null, deps.env);
 	if (LATER.some((pattern) => pattern.test(url.pathname)))
 		return json(NOT_IN_THIS_BATCH, 501);
 	return fail(404, "not_found", `${url.pathname} is not a fixture route`);

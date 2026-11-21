@@ -13,9 +13,10 @@ import { defineHandler } from "nitro";
 
 import { items } from "#/server/db/schema.server";
 import { pool } from "#/server/db.server";
-import { databaseConfigured } from "#/server/env.server";
+import { databaseConfigured, keyValueSettings } from "#/server/env.server";
 
 import { enqueueFixtureJob } from "./boss";
+import { redisKv } from "./kv-redis";
 import {
 	type FillDb,
 	type FixtureDeps,
@@ -121,6 +122,9 @@ const fillDb: FillDb = {
 	},
 };
 
+/** The Key Value routes' Redis work; null without REDIS_URL. */
+const kvSettings = keyValueSettings();
+
 async function assets(): Promise<string[]> {
 	for (const dir of ["public/assets", ".output/public/assets"]) {
 		const path = join(process.cwd(), dir);
@@ -162,6 +166,7 @@ const deps: FixtureDeps = {
 		? () => enqueueFixtureJob(() => pool.getClient())
 		: null,
 	fill: databaseConfigured() ? fillDb : null,
+	kv: kvSettings === null ? null : redisKv(kvSettings),
 };
 
 export default defineHandler((event) => handleFixture(event.req, deps));

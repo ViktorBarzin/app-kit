@@ -93,6 +93,32 @@ export function realtimeEnabled(): boolean {
 	return connectionBudget().realtime;
 }
 
+/** Cloud's Key Value (or any Redis): the URL, the key prefix and the Size. */
+export interface KeyValueSettings {
+	/** REDIS_URL: redis://<user>:<password>@<host>:<port>/<db>. */
+	url: string;
+	/** CLOUD_KV_PREFIX: every key and channel of this App starts with it; "" off Cloud. */
+	prefix: string;
+	/** CLOUD_KV_MAX_BYTES: the Key Value's Size; null off Cloud. */
+	maxBytes: number | null;
+}
+
+/** REDIS_URL, CLOUD_KV_PREFIX and CLOUD_KV_MAX_BYTES, or null without REDIS_URL. */
+export function keyValueSettings(): KeyValueSettings | null {
+	const url = secret("REDIS_URL");
+	if (url === null) return null;
+	const max = env("CLOUD_KV_MAX_BYTES");
+	if (max !== null && !/^[1-9][0-9]*$/.test(max))
+		throw new Error(
+			`CLOUD_KV_MAX_BYTES must be a whole number of bytes (got "${max}")`,
+		);
+	return {
+		url,
+		prefix: env("CLOUD_KV_PREFIX") ?? "",
+		maxBytes: max === null ? null : Number(max),
+	};
+}
+
 export interface CloudSettings {
 	/** CLOUD_EDGE_SECRET: the edge sends it on every request it forwards. */
 	edgeSecret: string;

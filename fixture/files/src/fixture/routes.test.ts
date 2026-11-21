@@ -367,11 +367,9 @@ test("genericError keeps only the kind of failure", () => {
 describe("later batches", () => {
 	test("answer 501 not_in_this_batch", async () => {
 		for (const path of [
-			"/kv-selftest",
 			"/upload",
 			"/files/a.txt",
 			"/probe/pg?db=x",
-			"/probe/kv?key=x",
 			"/probe/s3?bucket=x",
 		]) {
 			const response = await get(path, deps());
@@ -379,6 +377,13 @@ describe("later batches", () => {
 			expect(await response.json()).toEqual(NOT_IN_THIS_BATCH);
 		}
 	});
+});
+
+test("the Key Value routes answer 503 without a Key Value", async () => {
+	for (const path of ["/kv-selftest", "/probe/kv?key=x", "/kv-fill?mb=1"]) {
+		const response = await get(path, deps({ kv: null }));
+		expect([path, response.status]).toEqual([path, 503]);
+	}
 });
 
 test("/build-assets lists the client's JS files", async () => {

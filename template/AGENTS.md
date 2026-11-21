@@ -151,6 +151,21 @@ are, except where this section says otherwise.
   Postgres (`bytea`, a few MB each at most; they count against its
   Size's disk). A Bucket kind for larger files is coming. An upload's
   request body may be at most 100 MiB.
+- **Key Value.** A `keyvalue` Service (`size: nano` 16 MiB, `small` 64
+  MiB, `medium` 128 MiB) that the App lists in `connects` gives it
+  `REDIS_URL`, `CLOUD_KV_PREFIX` and `CLOUD_KV_MAX_BYTES`. Call
+  `createRedis()` from `src/server/redis.server.ts` once per process:
+  `kv.client` adds the prefix to every key; name channels with
+  `kv.channel("x")` and subscribe on `kv.subscriber()`; for BullMQ
+  (`bun add bullmq`) pass `kv.bullmq()` to each Queue and Worker. Keys and
+  channels outside the prefix, `KEYS`, `SCAN`, `SELECT` and `INFO` answer
+  `NOPERM`. Data survives restarts with at most 1 s lost; keys with a TTL
+  may be evicted under memory pressure, keys without one never are. Past
+  its Size, writes reject with `KeyValueFullError` ("Key Value is full:
+  over its Size of 16 MiB; delete keys or choose a bigger Size") until
+  keys are deleted; GET and DEL still work. `cloud kv-cli <project>
+  <keyvalue>` opens `redis-cli`. app-kit's `docs/stack.md`, "Key Value on
+  Cloud", has the rest.
 - **Background work.** A pg-boss worker or a cron job runs from this
   App's image as a `worker` or `cron` Service in the Project File, with an
   argv `command` such as `[bun, entrypoints/worker.js]` and its pool sized

@@ -278,6 +278,62 @@ the second a label for logs. An internal App's `CLOUD_PUBLIC_URL` is its
 URL inside the cluster, and an App that connects to internal Apps gets one
 `CLOUD_URL_<NAME>` for each.
 
+## Key Value on Cloud
+
+A Key Value is a Redis keyspace for one Project's Apps: caches, sessions,
+counters, BullMQ queues and pub/sub. It is a Service of kind `keyvalue` with
+a Size, and an App gets it through `connects`:
+
+```yaml
+services:
+  web:
+    kind: app
+    connects: [db, cache]
+    # repo, size and the rest as before
+  cache:
+    kind: keyvalue
+    size: nano        # nano 16 MiB, small 64 MiB, medium 128 MiB
+```
+
+- **Env.** The App, and its workers and crons, get `REDIS_URL`
+  (`redis://<user>:<password>@<host>:6379/0`, the Key Value's own user),
+  `CLOUD_KV_PREFIX` (`p:<project>:<service>:`) and `CLOUD_KV_MAX_BYTES`
+  (the Size in bytes). `src/server/env.server.ts` reads them
+  (`keyValueSettings()`).
+- **Prefix.** The Key Value's user may touch only keys and channels that
+  start with `CLOUD_KV_PREFIX`; anything else answers `NOPERM`. Use
+  `createRedis()` from `src/server/redis.server.ts`, once per process:
+  `kv.client` is ioredis with that `keyPrefix`, so `kv.client.set("a", "1")`
+  writes `<prefix>a`. ioredis does not prefix channels, and BullMQ refuses a
+  client with a `keyPrefix`, so:
+  - channels: `kv.client.publish(kv.channel("news"), text)`, and subscribe
+    on `kv.subscriber()` (a connection of its own) to `kv.channel("news")`;
+  - BullMQ (`bun add bullmq`): `new Queue("jobs", kv.bullmq())` and
+    `new Worker("jobs", handler, kv.bullmq())`. `kv.bullmq()` gives a
+    connection without `keyPrefix`, `prefix: <CLOUD_KV_PREFIX>bull` and
+    `skipVersionCheck: true`, because BullMQ's version check runs `INFO`,
+    which the Key Value's user may not run.
+- **Commands.** Strings, hashes, lists, sets, sorted sets, streams,
+  transactions, Lua scripts and pub/sub work. `KEYS`, `SCAN`, `SELECT`,
+  `FLUSHDB`, `CONFIG`, `INFO` and the other admin commands answer `NOPERM`:
+  keep the keys you need to find again in a set or a hash. ioredis's
+  ready check runs `INFO`, so `createRedis()` turns it off.
+- **Data.** It survives restarts, with at most 1 s of writes lost (Redis
+  appends every write to its log and syncs it each second). Keys with a
+  TTL may be evicted when the shared Redis runs short of memory; keys
+  without a TTL are never evicted. So give cache entries a TTL, and keep
+  queues and state without one.
+- **Size.** Cloud measures the Key Value every 5 min. Once it holds more
+  than its Size, writes fail until you delete keys; reads and `DEL` still
+  work, and Cloud notifies the owner. A refused write rejects with
+  `KeyValueFullError`, whose message is `Key Value is full: over its Size
+  of 16 MiB; delete keys or choose a bigger Size`. Writes work again
+  within about 5 min of getting under the Size. A bigger Size in the
+  Project File keeps every key. `cloud services <project>` shows the bytes
+  and keys in use.
+- **CLI.** `cloud kv-cli <project> <keyvalue>` opens `redis-cli` as the
+  Key Value's own user; piped stdin runs one command per line.
+
 ## Workers and cron jobs on Cloud
 
 Background work runs as two more kinds of Service in the Project File. Each

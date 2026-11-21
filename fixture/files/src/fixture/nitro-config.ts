@@ -27,6 +27,7 @@ export const FIXTURE_ROUTES = [
 	"/sink/**",
 	"/enqueue",
 	"/kv-selftest",
+	"/kv-fill",
 	"/upload",
 	"/files/**",
 	"/probe/**",

@@ -22,6 +22,7 @@ import {
 	cloudSettings,
 	connectionBudget,
 	isCloud,
+	keyValueSettings,
 	realtimeEnabled,
 	serviceInfo,
 	telemetrySettings,
@@ -277,5 +278,41 @@ describe("connection budget", () => {
 			realtime: true,
 		});
 		setEnv({ CLOUD_DATABASE_POOL_SIZE: undefined });
+	});
+});
+
+describe("Key Value", () => {
+	test("off without REDIS_URL", () => {
+		delete process.env.REDIS_URL;
+		delete process.env.REDIS_URL_FILE;
+		expect(keyValueSettings()).toBeNull();
+	});
+
+	test("on Cloud: the URL, the prefix and the Size in bytes", () => {
+		process.env.REDIS_URL = "redis://p_a_b_0123456789:pw@127.0.0.1:6379/0";
+		process.env.CLOUD_KV_PREFIX = "p:a:b:";
+		process.env.CLOUD_KV_MAX_BYTES = "16777216";
+		expect(keyValueSettings()).toEqual({
+			url: "redis://p_a_b_0123456789:pw@127.0.0.1:6379/0",
+			prefix: "p:a:b:",
+			maxBytes: 16777216,
+		});
+	});
+
+	test("outside Cloud: no prefix and no Size", () => {
+		process.env.REDIS_URL = "redis://127.0.0.1:6379/0";
+		delete process.env.CLOUD_KV_PREFIX;
+		delete process.env.CLOUD_KV_MAX_BYTES;
+		expect(keyValueSettings()).toEqual({
+			url: "redis://127.0.0.1:6379/0",
+			prefix: "",
+			maxBytes: null,
+		});
+	});
+
+	test("a Size that is not a whole number of bytes is a configuration error", () => {
+		process.env.REDIS_URL = "redis://127.0.0.1:6379/0";
+		process.env.CLOUD_KV_MAX_BYTES = "16 MiB";
+		expect(() => keyValueSettings()).toThrow(/CLOUD_KV_MAX_BYTES/);
 	});
 });
