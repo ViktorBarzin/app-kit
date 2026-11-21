@@ -1,9 +1,9 @@
 /**
  * The write commands a Cloud Key Value's Redis user may run while it is
  * under its Size, by the name Redis gives in a NOPERM error (`xgroup|create`
- * for a subcommand), on redis 8.10.3. It is @write minus @dangerous, minus
- * the tenant template's own refusals (-move, -copy, -function), plus Lua
- * scripts, functions and publishing. Over its Size the user keeps only
+ * for a subcommand), on redis 8.10.3. It is @write minus @dangerous and
+ * @search, minus the tenant template's own refusals (-move, -copy,
+ * -function), plus Lua scripts, functions and publishing. Over its Size the user keeps only
  * reads, DEL, UNLINK and connection commands, so a NOPERM on one of these
  * means the Key Value is full. redis.server.test.ts checks this list
  * against a real Redis's ACL categories.
@@ -56,12 +56,6 @@ export const TENANT_WRITE_COMMANDS: ReadonlySet<string> = new Set([
 	"expireat",
 	"fcall",
 	"fcall_ro",
-	"ft._dropifx",
-	"ft.add",
-	"ft.del",
-	"ft.safeadd",
-	"ft.sugadd",
-	"ft.sugdel",
 	"geoadd",
 	"georadius",
 	"georadiusbymember",

@@ -180,8 +180,27 @@ function tenantRules(prefix: string): string[] {
 		"-pubsub|numsub",
 		"-pubsub|shardnumsub",
 		"-pubsub|numpat",
+		"-script|debug",
+		"-@search",
+		// Keyless module commands: they read other tenants' keys by label.
+		...KEYLESS_MODULE_COMMANDS.map((name) => `-${name}`),
 	];
 }
+
+/**
+ * The module commands in the template's categories that take no key, so
+ * the key pattern cannot confine them (COMMAND INFO first key 0 on 8.10.3).
+ */
+const KEYLESS_MODULE_COMMANDS = [
+	"ts.mget",
+	"ts.mrange",
+	"ts.mrevrange",
+	"ts.nrange",
+	"ts.nrevrange",
+	"ts.queryindex",
+	"ts.querylabels",
+	"json.debug",
+];
 
 /** The template's own refusals beyond -@dangerous, for the category check. */
 const TEMPLATE_REFUSES = ["move", "copy"];
@@ -359,15 +378,18 @@ describe.skipIf(!dockerOk())("on a real Redis with the tenant rules", () => {
 					)) as string[]
 				).map((name) => name.toLowerCase()),
 			);
-		const [write, dangerous, scripting] = await Promise.all([
+		const [write, dangerous, scripting, search] = await Promise.all([
 			list("write"),
 			list("dangerous"),
 			list("scripting"),
+			list("search"),
 		]);
 		const expected = new Set(
 			[...write].filter(
 				(name) =>
 					!dangerous.has(name) &&
+					!search.has(name) &&
+					!KEYLESS_MODULE_COMMANDS.includes(name) &&
 					!TEMPLATE_REFUSES.includes(name) &&
 					!name.startsWith("function|"),
 			),
@@ -391,8 +413,20 @@ describe.skipIf(!dockerOk())("on a real Redis with the tenant rules", () => {
 			["dbsize"],
 			["pubsub", "channels"],
 			["script", "kill"],
+			["script", "debug", "no"],
+			["ft.add", "idx", "doc", "1.0", "fields", "f", "v"],
+			["ft.search", "idx", "*"],
+			["ts.queryindex", "a=b"],
+			["ts.querylabels", "a=b"],
+			["ts.mrange", "-", "+", "filter", "a=b"],
+			["json.debug", "help"],
 		])
-			expect([args[0], await dryrun(args)]).not.toEqual([args[0], "OK"]);
+			expect([
+				args.slice(0, 2).join(" "),
+				/has no permissions to run the/.test(
+					await dryrun(args).catch((err: Error) => err.message),
+				),
+			]).toEqual([args.slice(0, 2).join(" "), true]);
 	});
 
 	test("over its Size: writes throw the full error, GET and DEL still work", async () => {
