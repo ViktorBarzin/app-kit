@@ -23,6 +23,8 @@
 		"rename": "bun scripts/rename.ts"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1171.0",
+		"@aws-sdk/lib-storage": "^3.1171.0",
 		"@sentry/browser": "^11.10.0",
 		"@sentry/bun": "^11.10.0",
 		"@tailwindcss/vite": "^4.1.18",

@@ -258,6 +258,8 @@ flowchart LR
 - **Limits.** Cloudflare gives a request 125 seconds to start its answer
   and takes a body of at most 100 MiB. A stream needs a message at least
   every 30 seconds (`cloud help limits`).
+- **Files.** Disk does not last: `/tmp` is wiped at every Deploy and
+  restart. Keep files in a Bucket ("Files on Cloud" below).
 - **Staging.** `cloud file export <p> --rename <p>-staging > s.yaml`, then
   `cloud apply s.yaml`, makes a copy with renamed Apps (`cloud help
   environments`).
@@ -272,7 +274,8 @@ The env contract is `CLOUD_EDGE_SECRET`, `CLOUD_OWNER_EMAIL`,
 `CLOUD_PUBLIC_URL`, `CLOUD_DATABASE_POOL_SIZE`,
 `CLOUD_DATABASE_CONNECTION_LIMIT`, `CLOUD_ACCESS` (`public`, `private` or `internal`)
 and `CLOUD_INSTANCE_ID` (the instance's pod name; `cloud logs` shows its
-last 5 characters on each line). `src/server/env.server.ts` reads all but
+last 5 characters on each line). With a Bucket, the App also gets the
+`S3_*` names ("Files on Cloud"). `src/server/env.server.ts` reads all but
 `CLOUD_ACCESS` and `CLOUD_INSTANCE_ID`: the first is the edge's setting,
 the second a label for logs. An internal App's `CLOUD_PUBLIC_URL` is its
 URL inside the cluster, and an App that connects to internal Apps gets one
@@ -313,7 +316,8 @@ services:
   `migrate.js`.
 - **Env.** The process gets exactly its App's env: the plain `env`, the
   App's secrets, `DATABASE_URL` and `CLOUD_DATABASE_URL_<NAME>` for each
-  database the App `connects` to, the `CLOUD_*` names and
+  database the App `connects` to, the `S3_*` names for its Buckets
+  ("Files on Cloud"), the `CLOUD_*` names and
   `SERVICE_VERSION`. Cloud adds `CLOUD_DATABASE_POOL_SIZE`, a whole number
   of at least 1: the Postgres connections this process may open. Today a
   worker and a cron run each get 1. Give your pool that `max`; pg-boss runs
@@ -342,6 +346,97 @@ cloud cron runs <project> <cron>             # start, end, exit code, status, lo
 cloud cron run <project> <cron>              # one run now: starts within 1 min, or skipped if a run still runs
 cloud logs <project> <cron> --run <id>       # one run's log
 ```
+
+## Files on Cloud
+
+A Bucket is a Service that keeps files, an S3 bucket on Cloud's Garage.
+Add one and connect the App to it; workers and cron jobs get it through
+`from`:
+
+```yaml
+services:
+  web:
+    kind: app
+    connects: [db, files]
+  files:
+    kind: bucket
+    size: small
+```
+
+- **Env.** The App gets `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`,
+  `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`. With more than one
+  Bucket, `S3_*` is the first by Service name, and each Bucket also
+  gives `CLOUD_S3_BUCKET_<NAME>`, `CLOUD_S3_ACCESS_KEY_ID_<NAME>` and
+  `CLOUD_S3_SECRET_ACCESS_KEY_<NAME>` (upper case, dashes as
+  underscores). The key reads and writes its own bucket only.
+- **Client.** `bucket()` in the template's `src/server/bucket.server.ts`
+  returns `{client, name}` for the App's Bucket, `bucket("<name>")` a
+  named one, and null without one. The client is
+  `@aws-sdk/client-s3` set for Garage: `forcePathStyle: true`, the
+  region from `S3_REGION`, and checksums only where S3 requires them.
+- **No public address.** Browsers never talk to the store. The App takes
+  each upload and serves each download, so its own sign-in guards the
+  files.
+- **Stream.** `putStream` sends a body over 5 MiB as a multipart upload
+  of 5 MiB parts, 2 at a time, and `getStream` returns a web stream, so a
+  large file never sits in memory whole. A request body is at most
+  100 MiB at the edge (`cloud help limits`): split a larger file into
+  several requests.
+- **Size.** The Bucket's Size is its quota, and it counts in the
+  Budget's storage. A write past it fails with S3 code `AccessDenied`
+  and a message that says the quota is reached.
+
+An upload and a download route, streaming both ways. From a page, send
+the file itself as the body (`fetch("/api/files", {method: "POST", body:
+file})`), so the server needs no multipart parser:
+
+```ts
+// src/routes/api/files.ts
+import { createFileRoute } from "@tanstack/react-router";
+import { keepRequestOpen } from "@viktorbarzin/runtime";
+
+import { appAuth } from "#/server/auth.server";
+import { bucket, getStream, putStream } from "#/server/bucket.server";
+
+export const Route = createFileRoute("/api/files")({
+	server: {
+		handlers: {
+			POST: ({ request }) =>
+				appAuth.handleApi(request, async (user) => {
+					const files = bucket();
+					if (!files || !request.body)
+						return Response.json({ error: "no_bucket" }, { status: 503 });
+					// A large upload outlasts the server's idle timeout.
+					keepRequestOpen(request);
+					const key = `${user.sub ?? user.username}/${crypto.randomUUID()}`;
+					const type = request.headers.get("content-type") ?? undefined;
+					await putStream(files, key, request.body, type);
+					return Response.json({ key });
+				}),
+			GET: ({ request }) =>
+				appAuth.handleApi(request, async (user) => {
+					const files = bucket();
+					const key = new URL(request.url).searchParams.get("key") ?? "";
+					const own = key.startsWith(`${user.sub ?? user.username}/`);
+					const found = files && own ? await getStream(files, key) : null;
+					if (!found)
+						return Response.json({ error: "not_found" }, { status: 404 });
+					keepRequestOpen(request);
+					return new Response(found.body, {
+						headers: {
+							"content-type": found.contentType ?? "application/octet-stream",
+						},
+					});
+				}),
+		},
+	},
+});
+```
+
+A plain HTML form posts `multipart/form-data`; Bun's `request.formData()`
+reads the whole body into memory first. The fixture App's `/upload`
+(app-kit `fixture/files/src/fixture/upload.ts`) streams the form's file
+part with `@fastify/busboy` instead.
 
 ## The template and the infra path
 

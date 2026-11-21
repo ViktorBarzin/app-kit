@@ -93,6 +93,61 @@ export function realtimeEnabled(): boolean {
 	return connectionBudget().realtime;
 }
 
+export interface BucketSettings {
+	/** S3_ENDPOINT: the S3 API inside the cluster, path-style. */
+	endpoint: string;
+	/** S3_REGION: the region the store signs with (Garage: `garage`). */
+	region: string;
+	/** S3_BUCKET, or CLOUD_S3_BUCKET_<NAME> for a named Bucket. */
+	bucket: string;
+	accessKeyId: string;
+	secretAccessKey: string;
+}
+
+/**
+ * A Bucket's S3 settings, or null when the App has none (S3_BUCKET
+ * unset). With a name, the Bucket of that Service: Cloud sets
+ * CLOUD_S3_BUCKET_<NAME>, CLOUD_S3_ACCESS_KEY_ID_<NAME> and
+ * CLOUD_S3_SECRET_ACCESS_KEY_<NAME> for each Bucket the App connects to
+ * (<NAME> upper-cased, dashes as underscores), and S3_* for the first one.
+ */
+export function bucketSettings(name?: string): BucketSettings | null {
+	const suffix =
+		name === undefined ? "" : `_${name.toUpperCase().replaceAll("-", "_")}`;
+	const names =
+		name === undefined
+			? {
+					bucket: "S3_BUCKET",
+					accessKeyId: "S3_ACCESS_KEY_ID",
+					secretAccessKey: "S3_SECRET_ACCESS_KEY",
+				}
+			: {
+					bucket: `CLOUD_S3_BUCKET${suffix}`,
+					accessKeyId: `CLOUD_S3_ACCESS_KEY_ID${suffix}`,
+					secretAccessKey: `CLOUD_S3_SECRET_ACCESS_KEY${suffix}`,
+				};
+	const bucket = env(names.bucket);
+	if (bucket === null) return null;
+	const values = {
+		S3_ENDPOINT: env("S3_ENDPOINT"),
+		S3_REGION: env("S3_REGION"),
+		[names.accessKeyId]: env(names.accessKeyId),
+		[names.secretAccessKey]: secret(names.secretAccessKey),
+	};
+	const missing = Object.entries(values)
+		.filter(([, value]) => value === null)
+		.map(([key]) => key);
+	if (missing.length > 0)
+		throw new Error(`${missing.join(", ")} must be set with ${names.bucket}`);
+	return {
+		endpoint: values.S3_ENDPOINT ?? "",
+		region: values.S3_REGION ?? "",
+		bucket,
+		accessKeyId: values[names.accessKeyId] ?? "",
+		secretAccessKey: values[names.secretAccessKey] ?? "",
+	};
+}
+
 export interface CloudSettings {
 	/** CLOUD_EDGE_SECRET: the edge sends it on every request it forwards. */
 	edgeSecret: string;

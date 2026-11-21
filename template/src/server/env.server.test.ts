@@ -18,6 +18,7 @@ import {
 import { app } from "#/app.config";
 import {
 	authConfig,
+	bucketSettings,
 	cloudAuthConfig,
 	cloudSettings,
 	connectionBudget,
@@ -277,5 +278,75 @@ describe("connection budget", () => {
 			realtime: true,
 		});
 		setEnv({ CLOUD_DATABASE_POOL_SIZE: undefined });
+	});
+});
+
+describe("bucket", () => {
+	const bucket = {
+		S3_ENDPOINT: "http://s3.example:3900",
+		S3_REGION: "garage",
+		S3_BUCKET: "p-demo-files-0123456789",
+		S3_ACCESS_KEY_ID: "GK0123",
+		S3_SECRET_ACCESS_KEY: "secret-key",
+		S3_SECRET_ACCESS_KEY_FILE: undefined,
+	};
+
+	test("off without S3_BUCKET: the App has no Bucket", () => {
+		setEnv({ ...bucket, S3_BUCKET: undefined });
+		expect(bucketSettings()).toBeNull();
+	});
+
+	test("on with S3_BUCKET, from the contract's variables", () => {
+		setEnv(bucket);
+		expect(bucketSettings()).toEqual({
+			endpoint: "http://s3.example:3900",
+			region: "garage",
+			bucket: "p-demo-files-0123456789",
+			accessKeyId: "GK0123",
+			secretAccessKey: "secret-key",
+		});
+	});
+
+	test("a named Bucket reads CLOUD_S3_*_<NAME>, upper-cased with dashes as underscores", () => {
+		setEnv({
+			...bucket,
+			CLOUD_S3_BUCKET_USER_PHOTOS: "p-demo-user-photos-abcdef0123",
+			CLOUD_S3_ACCESS_KEY_ID_USER_PHOTOS: "GK9999",
+			CLOUD_S3_SECRET_ACCESS_KEY_USER_PHOTOS: "photos-secret",
+		});
+		expect(bucketSettings("user-photos")).toEqual({
+			endpoint: "http://s3.example:3900",
+			region: "garage",
+			bucket: "p-demo-user-photos-abcdef0123",
+			accessKeyId: "GK9999",
+			secretAccessKey: "photos-secret",
+		});
+		expect(bucketSettings("other")).toBeNull();
+	});
+
+	test("the secret key may come from a file", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "bucket-env-"));
+		const file = join(dir, "s3-secret");
+		await writeFile(file, "from-file\n");
+		try {
+			setEnv({
+				...bucket,
+				S3_SECRET_ACCESS_KEY: undefined,
+				S3_SECRET_ACCESS_KEY_FILE: file,
+			});
+			expect(bucketSettings()?.secretAccessKey).toBe("from-file");
+		} finally {
+			await rm(dir, { recursive: true });
+		}
+	});
+
+	test.each([
+		"S3_ENDPOINT",
+		"S3_REGION",
+		"S3_ACCESS_KEY_ID",
+		"S3_SECRET_ACCESS_KEY",
+	])("S3_BUCKET without %s is a configuration error", (name) => {
+		setEnv({ ...bucket, [name]: undefined });
+		expect(() => bucketSettings()).toThrow(name);
 	});
 });

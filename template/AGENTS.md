@@ -147,10 +147,18 @@ are, except where this section says otherwise.
   its answer and a body of at most 100 MiB; a stream needs a message every
   30 seconds (`cloud help limits`).
 - **Files.** Nothing on disk lasts: `/tmp` (512 MiB) is wiped at every
-  Deploy and restart, and each instance has its own. Keep small files in
-  Postgres (`bytea`, a few MB each at most; they count against its
-  Size's disk). A Bucket kind for larger files is coming. An upload's
-  request body may be at most 100 MiB.
+  Deploy and restart, and each instance has its own. Keep files in a
+  Bucket: add `files: {kind: bucket, size: small}` to the Project File's
+  services and `files` to the App's `connects`. Cloud sets `S3_ENDPOINT`,
+  `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`
+  (and `CLOUD_S3_*_<NAME>` for each Bucket when there are several).
+  `bucket()` in `src/server/bucket.server.ts` gives the S3 client, or null
+  without a Bucket. The store has no public address: the App takes every
+  upload and serves every download, as streams (`putStream`,
+  `getStream`), never a whole file in memory. A request body is at most
+  100 MiB. A write past the Size's quota fails with S3 code
+  `AccessDenied`. app-kit's `docs/stack.md` ("Files on Cloud") has a
+  streaming upload and download route.
 - **Background work.** A pg-boss worker or a cron job runs from this
   App's image as a `worker` or `cron` Service in the Project File, with an
   argv `command` such as `[bun, entrypoints/worker.js]` and its pool sized
