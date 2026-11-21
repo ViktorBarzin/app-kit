@@ -191,6 +191,13 @@ are, except where this section says otherwise.
   Deploys. `cloud deploy cancel <project> <app> <id>` stops a build, and
   `cloud deploy-hook <project> <app>` prints a secret URL a POST to which
   deploys. Keep that URL out of the repo.
+- **Project File in the repo.** After `cloud sync enable <project> --repo
+  <this repo's URL>`, `cloud.yaml` at the repo root is the Project File:
+  each commit that changes it is applied within 2 minutes, `cloud apply`
+  is refused, and a Service you remove from it keeps running until `cloud
+  changes confirm <id>`. A commit that changes only `cloud.yaml` still
+  deploys the App, unless its message holds `[skip cloud]`. `cloud sync
+  status <project>` shows the last commit applied and any error.
 - **Test locally first.** Each push costs build minutes. Before you push,
   start a throwaway Postgres (README, "Run locally"), install the test
   browser once with `bunx playwright install chromium-headless-shell`, and
