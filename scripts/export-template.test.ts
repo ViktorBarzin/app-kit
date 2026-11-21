@@ -327,6 +327,8 @@ describe("applyVariant (the fixture)", () => {
 		);
 		// The worker and /enqueue use pg-boss; `bun install` locks it in the export.
 		expect(manifest.dependencies["pg-boss"]).toStartWith("^12.");
+		// /upload streams a multipart form's file part with @fastify/busboy.
+		expect(manifest.dependencies["@fastify/busboy"]).toStartWith("^3.");
 		expect(Object.keys(manifest.dependencies)).toEqual(
 			Object.keys(manifest.dependencies).sort(),
 		);

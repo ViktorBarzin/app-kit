@@ -28,6 +28,7 @@ export const FIXTURE_ROUTES = [
 	"/enqueue",
 	"/kv-selftest",
 	"/upload",
+	"/upload-form",
 	"/files/**",
 	"/probe/**",
 ] as const;

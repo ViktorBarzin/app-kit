@@ -89,6 +89,13 @@ export const fixtureVariant: TemplateVariant = {
 			replace: '\t\t"pg-boss": "^12.38.2",\n\t\t"prom-client": "',
 		},
 		{
+			// /upload: @fastify/busboy streams a multipart form's file part
+			// (Bun's Request.formData() reads the whole body into memory first).
+			path: "package.json",
+			find: '\t\t"@sentry/browser": "',
+			replace: '\t\t"@fastify/busboy": "^3.2.6",\n\t\t"@sentry/browser": "',
+		},
+		{
 			// P10: the migrate step prints MIGRATION_LOG and exits with MIGRATION_EXIT (knobs.ts).
 			path: "src/entrypoints/migrate.ts",
 			find: 'import { serviceInfo } from "#/server/env.server";\n',

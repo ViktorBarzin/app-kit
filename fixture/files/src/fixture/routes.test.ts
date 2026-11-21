@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 
 import {
+	BucketError,
 	FETCH_TIMEOUT_MS,
 	FILL_DEFAULT_MAX_MIB,
 	type FillDb,
+	type FixtureBucket,
 	type FixtureDeps,
 	fixtureHealthy,
 	fixtureState,
@@ -13,6 +15,7 @@ import {
 	LOG_MAX_LINES,
 	NOT_IN_THIS_BATCH,
 	serviceUrls,
+	UPLOAD_MAX_BYTES,
 } from "./routes";
 import { SinkStore } from "./sink";
 
@@ -27,6 +30,44 @@ function fakeFill(startMib = 0): FillDb {
 			size = startMib;
 		},
 		databaseMib: async () => size,
+	};
+}
+
+interface Stored {
+	bytes: Uint8Array<ArrayBuffer>;
+	contentType: string | null;
+}
+
+/** A Bucket in memory; `fail` makes every put throw it after reading the body. */
+function fakeBucket(
+	options: { fail?: BucketError; probe?: Record<string, BucketError> } = {},
+): FixtureBucket & { stored: Map<string, Stored>; reads: number[] } {
+	const stored = new Map<string, Stored>();
+	const reads: number[] = [];
+	return {
+		stored,
+		reads,
+		async put(key, body, contentType) {
+			const bytes = new Uint8Array(await new Response(body).arrayBuffer());
+			reads.push(bytes.length);
+			if (options.fail) throw options.fail;
+			stored.set(key, { bytes, contentType });
+		},
+		async get(key) {
+			const found = stored.get(key);
+			if (!found) return null;
+			return {
+				body: new Response(found.bytes).body ?? new ReadableStream(),
+				contentType: found.contentType,
+				bytes: found.bytes.length,
+			};
+		},
+		async probe(bucket) {
+			const failure = options.probe?.[bucket];
+			return failure
+				? { ok: false, code: failure.code, message: failure.message }
+				: { ok: true };
+		},
 	};
 }
 
@@ -83,6 +124,8 @@ function deps(overrides: Partial<FixtureDeps> = {}): FixtureDeps & {
 		enqueue: async () => "0b6d3c1e-5f1a-4c55-9a43-3f1b2c4d5e6f",
 		fill: fakeFill(),
 		sink: new SinkStore(),
+		bucket: fakeBucket(),
+		probePg: async () => ({ ok: true }),
 		exits,
 		slept,
 		deleted,
@@ -366,14 +409,7 @@ test("genericError keeps only the kind of failure", () => {
 
 describe("later batches", () => {
 	test("answer 501 not_in_this_batch", async () => {
-		for (const path of [
-			"/kv-selftest",
-			"/upload",
-			"/files/a.txt",
-			"/probe/pg?db=x",
-			"/probe/kv?key=x",
-			"/probe/s3?bucket=x",
-		]) {
+		for (const path of ["/kv-selftest", "/probe/kv?key=x"]) {
 			const response = await get(path, deps());
 			expect([path, response.status]).toEqual([path, 501]);
 			expect(await response.json()).toEqual(NOT_IN_THIS_BATCH);
@@ -648,4 +684,336 @@ describe("/fetch stays open", () => {
 		expect(kept).toBe(1);
 		expect(FETCH_TIMEOUT_MS).toBeLessThan(10_000);
 	});
+});
+
+const shaBytes = (bytes: Uint8Array) =>
+	createHash("sha256").update(bytes).digest("hex");
+
+const post = (path: string, d: FixtureDeps, init: RequestInit) =>
+	handleFixture(
+		new Request(`http://fx.test${path}`, { method: "POST", ...init }),
+		d,
+	);
+
+/** `n` bytes that are not all the same. */
+function bytesOf(n: number): Uint8Array<ArrayBuffer> {
+	const out = new Uint8Array(n);
+	for (let i = 0; i < n; i++) out[i] = (i * 31 + 7) % 251;
+	return out;
+}
+
+describe("/upload", () => {
+	test("a raw body goes to the bucket under ?key, answered with its SHA-256 and size", async () => {
+		const bucket = fakeBucket();
+		const body = bytesOf(70_000);
+		const response = await post("/upload?key=docs/a.bin", deps({ bucket }), {
+			body,
+			headers: { "content-type": "application/pdf" },
+		});
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			key: "docs/a.bin",
+			sha256: shaBytes(body),
+			bytes: 70_000,
+		});
+		expect(bucket.stored.get("docs/a.bin")?.bytes).toEqual(body);
+		expect(bucket.stored.get("docs/a.bin")?.contentType).toBe(
+			"application/pdf",
+		);
+	});
+
+	test("without ?key the fixture makes one", async () => {
+		const bucket = fakeBucket();
+		const response = await post("/upload", deps({ bucket }), {
+			body: "hello",
+		});
+		const answer = (await response.json()) as { key: string; bytes: number };
+		expect(answer.key).toMatch(/^[0-9a-f-]{36}$/);
+		expect(answer.bytes).toBe(5);
+		expect(bucket.stored.has(answer.key)).toBe(true);
+	});
+
+	test("a multipart form's field `file` is streamed, the other fields left out", async () => {
+		const bucket = fakeBucket();
+		const body = bytesOf(200_000);
+		const form = new FormData();
+		form.append("note", "not stored");
+		// Bun's Blob: the tests' happy-dom replaces the global one.
+		const blob = await new Response(body, {
+			headers: { "content-type": "image/png" },
+		}).blob();
+		form.append("file", blob, "../../etc/passwd");
+		const response = await post("/upload", deps({ bucket }), { body: form });
+		expect(response.status).toBe(200);
+		const answer = (await response.json()) as {
+			key: string;
+			sha256: string;
+			bytes: number;
+		};
+		expect(answer.sha256).toBe(shaBytes(body));
+		expect(answer.bytes).toBe(200_000);
+		// The file name is the client's: never the key.
+		expect(answer.key).toMatch(/^[0-9a-f-]{36}$/);
+		expect(bucket.stored.get(answer.key)?.contentType).toBe("image/png");
+		expect(bucket.stored.get(answer.key)?.bytes).toEqual(body);
+	});
+
+	test("a multipart form without a field `file` is refused", async () => {
+		const form = new FormData();
+		form.append("other", await new Response("x").blob(), "x.txt");
+		const response = await post("/upload", deps(), { body: form });
+		expect(response.status).toBe(400);
+		expect(
+			((await response.json()) as { error: { code: string } }).error.code,
+		).toBe("no_file");
+	});
+
+	test("an S3 failure answers its status, code and message: the quota error as Garage sends it", async () => {
+		const message =
+			"Forbidden: Bucket size quota is reached, maximum total size of objects for this bucket: 1024.";
+		const bucket = fakeBucket({
+			fail: new BucketError("AccessDenied", 403, message),
+		});
+		const response = await post("/upload?key=big", deps({ bucket }), {
+			body: bytesOf(2048),
+		});
+		expect(response.status).toBe(403);
+		expect(await response.json()).toEqual({
+			error: { code: "AccessDenied", message },
+		});
+	});
+
+	test("a failure with no HTTP status, such as a dropped connection, answers 502", async () => {
+		const bucket = fakeBucket({
+			fail: new BucketError("s3_error", null, "socket hang up"),
+		});
+		const response = await post("/upload?key=k", deps({ bucket }), {
+			body: "x",
+		});
+		expect(response.status).toBe(502);
+	});
+
+	test("a body past the edge's 100 MiB is refused with 413 and not stored", async () => {
+		const bucket = fakeBucket();
+		const chunk = new Uint8Array(1024 * 1024);
+		let sent = 0;
+		const body = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				if (sent > UPLOAD_MAX_BYTES) controller.close();
+				else {
+					sent += chunk.length;
+					controller.enqueue(chunk);
+				}
+			},
+		});
+		const response = await post("/upload?key=huge", deps({ bucket }), {
+			body,
+		});
+		expect(response.status).toBe(413);
+		expect(bucket.stored.has("huge")).toBe(false);
+	});
+
+	test("lifts the idle timeout, since a large upload outlasts it", async () => {
+		const kept: string[] = [];
+		await post(
+			"/upload?key=k",
+			deps({ keepOpen: (r) => kept.push(new URL(r.url).pathname) }),
+			{ body: "x" },
+		);
+		expect(kept).toEqual(["/upload"]);
+	});
+
+	test.each([
+		["", "an empty key"],
+		["a".repeat(513), "a key over 512 bytes"],
+		["a\u0000b", "a control character"],
+		["a/../b", "a .. segment"],
+		["/abs", "an empty segment"],
+	])("refuses %p (%s)", async (key) => {
+		const bucket = fakeBucket();
+		const response = await post(
+			`/upload?key=${encodeURIComponent(key)}`,
+			deps({ bucket }),
+			{ body: "x" },
+		);
+		expect(response.status).toBe(400);
+		expect(bucket.stored.size).toBe(0);
+	});
+
+	test("only POST", async () => {
+		expect((await get("/upload", deps())).status).toBe(405);
+	});
+
+	test("503 without a Bucket", async () => {
+		const response = await post("/upload", deps({ bucket: null }), {
+			body: "x",
+		});
+		expect(response.status).toBe(503);
+	});
+});
+
+describe("/files/<key>", () => {
+	test("streams the object back with its type", async () => {
+		const bucket = fakeBucket();
+		const body = bytesOf(4096);
+		bucket.stored.set("docs/a b.bin", { bytes: body, contentType: null });
+		const response = await get(
+			`/files/${encodeURIComponent("docs/a b.bin")}`,
+			deps({ bucket }),
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe(
+			"application/octet-stream",
+		);
+		expect(response.headers.get("content-length")).toBe("4096");
+		expect(Buffer.from(await response.arrayBuffer())).toEqual(
+			Buffer.from(body),
+		);
+	});
+
+	test("a slash in the key may come plain", async () => {
+		const bucket = fakeBucket();
+		bucket.stored.set("docs/x.txt", {
+			bytes: new TextEncoder().encode("x"),
+			contentType: "text/plain",
+		});
+		const response = await get("/files/docs/x.txt", deps({ bucket }));
+		expect(response.headers.get("content-type")).toBe("text/plain");
+		expect(await response.text()).toBe("x");
+	});
+
+	test("404 JSON for a key that is not there", async () => {
+		const response = await get("/files/missing", deps());
+		expect(response.status).toBe(404);
+		expect(
+			((await response.json()) as { error: { code: string } }).error.code,
+		).toBe("NoSuchKey");
+	});
+
+	test("400 for a key that is not valid", async () => {
+		expect((await get("/files/%E0%A4%A", deps())).status).toBe(400);
+		expect((await get("/files/a%00b", deps())).status).toBe(400);
+	});
+
+	test("503 without a Bucket", async () => {
+		expect((await get("/files/a", deps({ bucket: null }))).status).toBe(503);
+	});
+});
+
+describe("/probe/s3", () => {
+	test("ok on a bucket the App's keys may read", async () => {
+		const response = await get(
+			"/probe/s3?bucket=p-own-files-0123456789",
+			deps(),
+		);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			bucket: "p-own-files-0123456789",
+			ok: true,
+		});
+	});
+
+	test("another Project's bucket: the S3 error code as the SDK reports it", async () => {
+		const bucket = fakeBucket({
+			probe: {
+				"p-other-files-abcdef0123": new BucketError(
+					"AccessDenied",
+					403,
+					"Forbidden: Operation is not allowed for this key.",
+				),
+			},
+		});
+		const response = await get(
+			"/probe/s3?bucket=p-other-files-abcdef0123",
+			deps({ bucket }),
+		);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			bucket: "p-other-files-abcdef0123",
+			ok: false,
+			code: "AccessDenied",
+			message: "Forbidden: Operation is not allowed for this key.",
+		});
+	});
+
+	test("refuses a name S3 would not take", async () => {
+		for (const name of ["", "A", "ab", "UPPER-case", "a_b_c", "x".repeat(64)])
+			expect(
+				(await get(`/probe/s3?bucket=${encodeURIComponent(name)}`, deps()))
+					.status,
+			).toBe(400);
+	});
+
+	test("503 without a Bucket: no keys to try", async () => {
+		expect(
+			(await get("/probe/s3?bucket=abc", deps({ bucket: null }))).status,
+		).toBe(503);
+	});
+});
+
+describe("/probe/pg", () => {
+	test("tries the App's own credentials on database D", async () => {
+		const tried: string[] = [];
+		const response = await get(
+			"/probe/pg?db=p_other_db",
+			deps({
+				probePg: async (db) => {
+					tried.push(db);
+					return {
+						ok: false,
+						code: "28P01",
+						message: 'password authentication failed for user "p_own"',
+					};
+				},
+			}),
+		);
+		expect(tried).toEqual(["p_other_db"]);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			db: "p_other_db",
+			ok: false,
+			code: "28P01",
+			message: 'password authentication failed for user "p_own"',
+		});
+	});
+
+	test("ok on a database the credentials open", async () => {
+		expect(await (await get("/probe/pg?db=app", deps())).json()).toEqual({
+			db: "app",
+			ok: true,
+		});
+	});
+
+	test("refuses a name that is not an identifier, without connecting", async () => {
+		let tried = 0;
+		const d = deps({
+			probePg: async () => {
+				tried += 1;
+				return { ok: true };
+			},
+		});
+		for (const name of ["", "1db", "a b", "a;drop", "x".repeat(64), "a/b"])
+			expect(
+				(await get(`/probe/pg?db=${encodeURIComponent(name)}`, d)).status,
+			).toBe(400);
+		expect(tried).toBe(0);
+	});
+
+	test("503 without a database", async () => {
+		expect(
+			(await get("/probe/pg?db=app", deps({ probePg: null }))).status,
+		).toBe(503);
+	});
+});
+
+test("/upload-form is a page with a file form posting multipart to /upload", async () => {
+	const response = await get("/upload-form", deps());
+	expect(response.status).toBe(200);
+	expect(response.headers.get("content-type")).toContain("text/html");
+	const html = await response.text();
+	expect(html).toContain(
+		'<form action="/upload" method="post" enctype="multipart/form-data">',
+	);
+	expect(html).toContain('<input type="file" name="file"');
+	expect(html).toContain('type="submit"');
 });

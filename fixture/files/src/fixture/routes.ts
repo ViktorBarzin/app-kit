@@ -20,6 +20,7 @@ import {
 	sinkEnabled,
 	sinkStore,
 } from "./sink";
+import { UploadRequestError, uploadSource } from "./upload";
 
 /** The exit code /crash exits with. */
 export const CRASH_EXIT_CODE = 42;
@@ -63,6 +64,44 @@ export const FILL_MAX_MIB = 256;
  * Size, so an App on a bigger one sets the variable.
  */
 export const FILL_DEFAULT_MAX_MIB = 921;
+
+/** The largest body /upload takes: the edge's 100 MiB per request (`cloud help limits`). */
+export const UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+
+/** The longest key, in UTF-8 bytes (S3 allows 1024). */
+export const KEY_MAX_BYTES = 512;
+
+/** A failed S3 call: the S3 error code (`AccessDenied`), its HTTP status if it got one, and the message. */
+export class BucketError extends Error {
+	constructor(
+		readonly code: string,
+		readonly status: number | null,
+		message: string,
+	) {
+		super(message);
+	}
+}
+
+export type ProbeResult =
+	| { ok: true }
+	| { ok: false; code: string; message: string };
+
+/** The App's Bucket, through its own keys. put and get throw BucketError. */
+export interface FixtureBucket {
+	put(
+		key: string,
+		body: ReadableStream<Uint8Array>,
+		contentType: string | null,
+	): Promise<void>;
+	/** Null when there is no object at `key`. */
+	get(key: string): Promise<{
+		body: ReadableStream<Uint8Array>;
+		contentType: string | null;
+		bytes: number | null;
+	} | null>;
+	/** Tries the App's keys on another bucket: one ListObjectsV2 of 1 key. */
+	probe(bucket: string): Promise<ProbeResult>;
+}
 
 export const NOT_IN_THIS_BATCH = {
 	error: {
@@ -124,6 +163,10 @@ export interface FixtureDeps {
 	fill: FillDb | null;
 	/** The webhook sink's store; the process's own unless a test sets one. */
 	sink?: SinkStore;
+	/** The App's Bucket; null without S3_BUCKET. */
+	bucket: FixtureBucket | null;
+	/** Connects with DATABASE_URL's credentials to another database; null without a database. */
+	probePg: ((db: string) => Promise<ProbeResult>) | null;
 }
 
 interface FixtureState {
@@ -529,12 +572,204 @@ async function sink(
 	return json({ stored: kept.n }, kept.answered);
 }
 
-const LATER = [
-	/^\/kv-selftest$/,
-	/^\/upload$/,
-	/^\/files\/[^/]+$/,
-	/^\/probe\/(pg|kv|s3)$/,
-];
+/**
+ * A key /upload and /files take: 1 to KEY_MAX_BYTES bytes, no control
+ * characters, and no empty, `.` or `..` segment, which a URL would fold.
+ */
+export function validKey(key: string): boolean {
+	if (key === "" || new TextEncoder().encode(key).length > KEY_MAX_BYTES)
+		return false;
+	for (const char of key) {
+		const code = char.charCodeAt(0);
+		if (code < 0x20 || code === 0x7f) return false;
+	}
+	return (
+		key.split("/").every((part) => part !== "." && part !== "..") &&
+		!key.startsWith("/") &&
+		!key.includes("//")
+	);
+}
+
+const BAD_KEY = `a key is 1 to ${KEY_MAX_BYTES} bytes with no control characters and no empty, . or .. segment`;
+
+const noBucket = () =>
+	fail(503, "no_bucket", "the App has no Bucket (S3_BUCKET is not set)");
+
+const bucketFailure = (err: BucketError) =>
+	fail(
+		err.status !== null && err.status >= 400 ? err.status : 502,
+		err.code,
+		err.message,
+	);
+
+/**
+ * `source` passed through, hashed and counted; it errors once it passes
+ * `max` bytes. (A plain ReadableStream: under the tests' happy-dom,
+ * TransformStream is not Bun's.)
+ */
+function measured(
+	source: ReadableStream<Uint8Array>,
+	max: number,
+): {
+	stream: ReadableStream<Uint8Array>;
+	tooLarge: () => boolean;
+	/** The SHA-256 hex and the size; call once, after the stream ended. */
+	result: () => { sha256: string; bytes: number };
+} {
+	const hash = createHash("sha256");
+	const reader = source.getReader();
+	let bytes = 0;
+	let tooLarge = false;
+	const stream = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			const { done, value } = await reader.read();
+			if (done) {
+				controller.close();
+				return;
+			}
+			bytes += value.byteLength;
+			if (bytes > max) {
+				tooLarge = true;
+				controller.error(
+					new UploadRequestError(
+						"body_too_large",
+						`a body is at most ${max} bytes`,
+					),
+				);
+				await reader.cancel();
+				return;
+			}
+			hash.update(value);
+			controller.enqueue(value);
+		},
+		cancel(reason) {
+			return reader.cancel(reason);
+		},
+	});
+	return {
+		stream,
+		tooLarge: () => tooLarge,
+		result: () => ({ sha256: hash.digest("hex"), bytes }),
+	};
+}
+
+/**
+ * POST /upload: the raw body, or a multipart form's field `file`, streamed
+ * to the Bucket under `?key=` or a new UUID; answers {key, sha256, bytes}.
+ * An S3 failure answers its status, code and message.
+ */
+async function upload(
+	request: Request,
+	deps: FixtureDeps,
+	url: URL,
+): Promise<Response> {
+	if (request.method !== "POST")
+		return fail(405, "method_not_allowed", "send the file with POST");
+	if (!deps.bucket) return noBucket();
+	const key = url.searchParams.get("key") ?? crypto.randomUUID();
+	if (!validKey(key)) return fail(400, "bad_key", BAD_KEY);
+	// A large upload outlasts the server's idle timeout.
+	deps.keepOpen(request);
+	let meter: ReturnType<typeof measured> | null = null;
+	try {
+		const source = await uploadSource(request, UPLOAD_MAX_BYTES);
+		meter = measured(source.stream, UPLOAD_MAX_BYTES);
+		await deps.bucket.put(key, meter.stream, source.contentType);
+		const { sha256: digest, bytes } = meter.result();
+		return json({ key, sha256: digest, bytes });
+	} catch (err) {
+		if (
+			meter?.tooLarge() ||
+			(err instanceof UploadRequestError && err.code === "body_too_large")
+		)
+			return fail(
+				413,
+				"body_too_large",
+				`a body is at most ${UPLOAD_MAX_BYTES} bytes`,
+			);
+		if (err instanceof UploadRequestError)
+			return fail(400, err.code, err.message);
+		if (err instanceof BucketError) return bucketFailure(err);
+		throw err;
+	}
+}
+
+/** GET /files/<key>: the object, streamed, or 404 NoSuchKey. */
+async function file(
+	request: Request,
+	deps: FixtureDeps,
+	url: URL,
+): Promise<Response> {
+	if (!deps.bucket) return noBucket();
+	let key: string;
+	try {
+		key = decodeURIComponent(url.pathname.slice("/files/".length));
+	} catch {
+		return fail(400, "bad_key", BAD_KEY);
+	}
+	if (!validKey(key)) return fail(400, "bad_key", BAD_KEY);
+	let found: Awaited<ReturnType<FixtureBucket["get"]>>;
+	try {
+		found = await deps.bucket.get(key);
+	} catch (err) {
+		if (err instanceof BucketError) return bucketFailure(err);
+		throw err;
+	}
+	if (!found) return fail(404, "NoSuchKey", `no object at ${key}`);
+	deps.keepOpen(request);
+	return new Response(found.body, {
+		headers: {
+			"content-type": found.contentType ?? "application/octet-stream",
+			"cache-control": "no-store",
+			...(found.bytes !== null
+				? { "content-length": String(found.bytes) }
+				: {}),
+		},
+	});
+}
+
+/** An S3 bucket name: 3 to 63 of a-z, 0-9, . and -, starting and ending with a letter or digit. */
+const BUCKET_NAME = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+
+/** A Postgres database name the probe takes: a letter or _, then up to 62 of letters, digits, _, $ and -. */
+const DATABASE_NAME = /^[A-Za-z_][A-Za-z0-9_$-]{0,62}$/;
+
+async function probeS3(deps: FixtureDeps, url: URL): Promise<Response> {
+	const name = url.searchParams.get("bucket") ?? "";
+	if (!BUCKET_NAME.test(name))
+		return fail(400, "bad_bucket", "bucket must be an S3 bucket name");
+	if (!deps.bucket) return noBucket();
+	return json({ bucket: name, ...(await deps.bucket.probe(name)) });
+}
+
+async function probePg(deps: FixtureDeps, url: URL): Promise<Response> {
+	const name = url.searchParams.get("db") ?? "";
+	if (!DATABASE_NAME.test(name))
+		return fail(
+			400,
+			"bad_db",
+			"db must be a database name: a letter or _, then letters, digits, _, $ or -, 63 at most",
+		);
+	if (!deps.probePg)
+		return fail(503, "no_database", "the App has no DATABASE_URL");
+	return json({ db: name, ...(await deps.probePg(name)) });
+}
+
+/** GET /upload-form: a browser's way to /upload (P59). */
+const UPLOAD_FORM = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Fixture upload</title></head>
+<body>
+<h1>Upload a file</h1>
+<form action="/upload" method="post" enctype="multipart/form-data">
+<input type="file" name="file" required>
+<button type="submit">Upload</button>
+</form>
+</body>
+</html>
+`;
+
+const LATER = [/^\/kv-selftest$/, /^\/probe\/kv$/];
 
 /**
  * Whether /healthz answers 200: the template's /healthz route asks this
@@ -595,7 +830,21 @@ export async function handleFixture(
 			return json({ id: await deps.enqueue() });
 		case "/fill":
 			return fill(request, deps, url);
+		case "/upload":
+			return upload(request, deps, url);
+		case "/upload-form":
+			return new Response(UPLOAD_FORM, {
+				headers: {
+					"content-type": "text/html; charset=utf-8",
+					"cache-control": "no-store",
+				},
+			});
+		case "/probe/s3":
+			return probeS3(deps, url);
+		case "/probe/pg":
+			return probePg(deps, url);
 	}
+	if (url.pathname.startsWith("/files/")) return file(request, deps, url);
 	if (url.pathname.startsWith("/sink/")) return sink(request, deps, url);
 	if (LATER.some((pattern) => pattern.test(url.pathname)))
 		return json(NOT_IN_THIS_BATCH, 501);
