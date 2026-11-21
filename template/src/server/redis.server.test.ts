@@ -171,39 +171,45 @@ function tenantRules(prefix: string): string[] {
 		"-randomkey",
 		"-function",
 		"-script|flush",
-		"-move",
-		"-copy",
-		"-script|kill",
-		"-dbsize",
-		"-pubsub|channels",
-		"-pubsub|shardchannels",
-		"-pubsub|numsub",
-		"-pubsub|shardnumsub",
-		"-pubsub|numpat",
-		"-script|debug",
-		"-@search",
-		// Keyless module commands: they read other tenants' keys by label.
-		...KEYLESS_MODULE_COMMANDS.map((name) => `-${name}`),
+		...TENANT_DENIED,
 	];
 }
 
 /**
- * The module commands in the template's categories that take no key, so
- * the key pattern cannot confine them (COMMAND INFO first key 0 on 8.10.3).
+ * infra's TENANT_DENIED, in its order, in the with-modules form: the test
+ * container's Redis loads the modules, the production one does not.
  */
-const KEYLESS_MODULE_COMMANDS = [
-	"ts.mget",
-	"ts.mrange",
-	"ts.mrevrange",
-	"ts.nrange",
-	"ts.nrevrange",
-	"ts.queryindex",
-	"ts.querylabels",
-	"json.debug",
+const TENANT_DENIED = [
+	"-move",
+	"-copy",
+	"-script|kill",
+	"-dbsize",
+	"-pubsub|channels",
+	"-pubsub|shardchannels",
+	"-pubsub|numsub",
+	"-pubsub|shardnumsub",
+	"-pubsub|numpat",
+	"-script|debug",
+	"-client|tracking",
+	"-himport|prepare",
+	"-himport|discard",
+	"-himport|discardall",
+	"-lolwut",
+	"-@search",
+	// Keyless module commands: they read other tenants' keys by label.
+	...[
+		"ts.mget",
+		"ts.mrange",
+		"ts.mrevrange",
+		"ts.queryindex",
+		"ts.querylabels",
+	].map((name) => `-${name}`),
 ];
 
 /** The template's own refusals beyond -@dangerous, for the category check. */
-const TEMPLATE_REFUSES = ["move", "copy"];
+const TEMPLATE_REFUSES = TENANT_DENIED.filter(
+	(rule) => rule.startsWith("-") && !rule.startsWith("-@"),
+).map((rule) => rule.slice(1));
 
 /** The read-and-delete rule set of a tenant over its Size. */
 function fullRules(prefix: string): string[] {
@@ -214,13 +220,19 @@ function fullRules(prefix: string): string[] {
 		`&${prefix}*`,
 		"-@all",
 		"+@read",
+		"+@connection",
 		"+del",
 		"+unlink",
-		"+@connection",
+		"+multi",
+		"+exec",
+		"+discard",
+		"+watch",
+		"+unwatch",
 		"-@dangerous",
 		"-select",
 		"-scan",
 		"-randomkey",
+		...TENANT_DENIED,
 	];
 }
 
@@ -389,7 +401,6 @@ describe.skipIf(!dockerOk())("on a real Redis with the tenant rules", () => {
 				(name) =>
 					!dangerous.has(name) &&
 					!search.has(name) &&
-					!KEYLESS_MODULE_COMMANDS.includes(name) &&
 					!TEMPLATE_REFUSES.includes(name) &&
 					!name.startsWith("function|"),
 			),
@@ -419,7 +430,11 @@ describe.skipIf(!dockerOk())("on a real Redis with the tenant rules", () => {
 			["ts.queryindex", "a=b"],
 			["ts.querylabels", "a=b"],
 			["ts.mrange", "-", "+", "filter", "a=b"],
-			["json.debug", "help"],
+			["ts.mget", "filter", "a=b"],
+			["ts.mrevrange", "-", "+", "filter", "a=b"],
+			["client", "tracking", "on"],
+			["himport", "prepare", "fs", "a", "b"],
+			["lolwut"],
 		])
 			expect([
 				args.slice(0, 2).join(" "),
