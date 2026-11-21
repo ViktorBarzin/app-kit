@@ -134,6 +134,15 @@ function deps(overrides: Partial<FixtureDeps> = {}): FixtureDeps & {
 	};
 }
 
+/** deps() with FIXTURE_UPLOAD=on, the switch /upload and /upload-form need. */
+function upDeps(overrides: Partial<FixtureDeps> = {}) {
+	const base = deps();
+	return deps({
+		...overrides,
+		env: { ...base.env, FIXTURE_UPLOAD: "on", ...(overrides.env ?? {}) },
+	});
+}
+
 const get = (path: string, d: FixtureDeps) =>
 	handleFixture(new Request(`http://fx.test${path}`), d);
 
@@ -703,10 +712,19 @@ function bytesOf(n: number): Uint8Array<ArrayBuffer> {
 }
 
 describe("/upload", () => {
+	test("is off unless FIXTURE_UPLOAD=on, and so is /upload-form", async () => {
+		const bucket = fakeBucket();
+		const off = await post("/upload?key=a", deps({ bucket }), { body: "x" });
+		expect(off.status).toBe(404);
+		expect(await off.text()).toContain("FIXTURE_UPLOAD=on");
+		expect(bucket.stored.size).toBe(0);
+		expect((await get("/upload-form", deps())).status).toBe(404);
+	});
+
 	test("a raw body goes to the bucket under ?key, answered with its SHA-256 and size", async () => {
 		const bucket = fakeBucket();
 		const body = bytesOf(70_000);
-		const response = await post("/upload?key=docs/a.bin", deps({ bucket }), {
+		const response = await post("/upload?key=docs/a.bin", upDeps({ bucket }), {
 			body,
 			headers: { "content-type": "application/pdf" },
 		});
@@ -724,7 +742,7 @@ describe("/upload", () => {
 
 	test("without ?key the fixture makes one", async () => {
 		const bucket = fakeBucket();
-		const response = await post("/upload", deps({ bucket }), {
+		const response = await post("/upload", upDeps({ bucket }), {
 			body: "hello",
 		});
 		const answer = (await response.json()) as { key: string; bytes: number };
@@ -743,7 +761,7 @@ describe("/upload", () => {
 			headers: { "content-type": "image/png" },
 		}).blob();
 		form.append("file", blob, "../../etc/passwd");
-		const response = await post("/upload", deps({ bucket }), { body: form });
+		const response = await post("/upload", upDeps({ bucket }), { body: form });
 		expect(response.status).toBe(200);
 		const answer = (await response.json()) as {
 			key: string;
@@ -761,7 +779,7 @@ describe("/upload", () => {
 	test("a multipart form without a field `file` is refused", async () => {
 		const form = new FormData();
 		form.append("other", await new Response("x").blob(), "x.txt");
-		const response = await post("/upload", deps(), { body: form });
+		const response = await post("/upload", upDeps(), { body: form });
 		expect(response.status).toBe(400);
 		expect(
 			((await response.json()) as { error: { code: string } }).error.code,
@@ -774,7 +792,7 @@ describe("/upload", () => {
 		const bucket = fakeBucket({
 			fail: new BucketError("AccessDenied", 403, message),
 		});
-		const response = await post("/upload?key=big", deps({ bucket }), {
+		const response = await post("/upload?key=big", upDeps({ bucket }), {
 			body: bytesOf(2048),
 		});
 		expect(response.status).toBe(403);
@@ -787,7 +805,7 @@ describe("/upload", () => {
 		const bucket = fakeBucket({
 			fail: new BucketError("s3_error", null, "socket hang up"),
 		});
-		const response = await post("/upload?key=k", deps({ bucket }), {
+		const response = await post("/upload?key=k", upDeps({ bucket }), {
 			body: "x",
 		});
 		expect(response.status).toBe(502);
@@ -806,7 +824,7 @@ describe("/upload", () => {
 				}
 			},
 		});
-		const response = await post("/upload?key=huge", deps({ bucket }), {
+		const response = await post("/upload?key=huge", upDeps({ bucket }), {
 			body,
 		});
 		expect(response.status).toBe(413);
@@ -817,7 +835,7 @@ describe("/upload", () => {
 		const kept: string[] = [];
 		await post(
 			"/upload?key=k",
-			deps({ keepOpen: (r) => kept.push(new URL(r.url).pathname) }),
+			upDeps({ keepOpen: (r) => kept.push(new URL(r.url).pathname) }),
 			{ body: "x" },
 		);
 		expect(kept).toEqual(["/upload"]);
@@ -833,7 +851,7 @@ describe("/upload", () => {
 		const bucket = fakeBucket();
 		const response = await post(
 			`/upload?key=${encodeURIComponent(key)}`,
-			deps({ bucket }),
+			upDeps({ bucket }),
 			{ body: "x" },
 		);
 		expect(response.status).toBe(400);
@@ -841,11 +859,11 @@ describe("/upload", () => {
 	});
 
 	test("only POST", async () => {
-		expect((await get("/upload", deps())).status).toBe(405);
+		expect((await get("/upload", upDeps())).status).toBe(405);
 	});
 
 	test("503 without a Bucket", async () => {
-		const response = await post("/upload", deps({ bucket: null }), {
+		const response = await post("/upload", upDeps({ bucket: null }), {
 			body: "x",
 		});
 		expect(response.status).toBe(503);
@@ -853,7 +871,7 @@ describe("/upload", () => {
 });
 
 describe("/files/<key>", () => {
-	test("streams the object back with its type", async () => {
+	test("streams the object back as a download, never as a page", async () => {
 		const bucket = fakeBucket();
 		const body = bytesOf(4096);
 		bucket.stored.set("docs/a b.bin", { bytes: body, contentType: null });
@@ -865,6 +883,8 @@ describe("/files/<key>", () => {
 		expect(response.headers.get("content-type")).toBe(
 			"application/octet-stream",
 		);
+		expect(response.headers.get("content-disposition")).toBe("attachment");
+		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
 		expect(response.headers.get("content-length")).toBe("4096");
 		expect(Buffer.from(await response.arrayBuffer())).toEqual(
 			Buffer.from(body),
@@ -874,12 +894,16 @@ describe("/files/<key>", () => {
 	test("a slash in the key may come plain", async () => {
 		const bucket = fakeBucket();
 		bucket.stored.set("docs/x.txt", {
-			bytes: new TextEncoder().encode("x"),
-			contentType: "text/plain",
+			bytes: new TextEncoder().encode("<script>x</script>"),
+			contentType: "text/html",
 		});
 		const response = await get("/files/docs/x.txt", deps({ bucket }));
-		expect(response.headers.get("content-type")).toBe("text/plain");
-		expect(await response.text()).toBe("x");
+		// The uploader's type is never served: a stored page cannot run here.
+		expect(response.headers.get("content-type")).toBe(
+			"application/octet-stream",
+		);
+		expect(response.headers.get("content-disposition")).toBe("attachment");
+		expect(await response.text()).toBe("<script>x</script>");
 	});
 
 	test("404 JSON for a key that is not there", async () => {
@@ -1007,7 +1031,7 @@ describe("/probe/pg", () => {
 });
 
 test("/upload-form is a page with a file form posting multipart to /upload", async () => {
-	const response = await get("/upload-form", deps());
+	const response = await get("/upload-form", upDeps());
 	expect(response.status).toBe(200);
 	expect(response.headers.get("content-type")).toContain("text/html");
 	const html = await response.text();

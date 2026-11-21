@@ -654,7 +654,20 @@ function measured(
 }
 
 /**
- * POST /upload: the raw body, or a multipart form's field `file`, streamed
+ * Whether /upload and /upload-form are on (FIXTURE_UPLOAD=on): a write to
+ * the Bucket that anyone who reaches the App could make, so off unless the
+ * App's owner sets it, as /fill and /sink are.
+ */
+export function uploadEnabled(
+	env: Record<string, string | undefined>,
+): boolean {
+	return env.FIXTURE_UPLOAD?.trim() === "on";
+}
+
+const UPLOAD_OFF = "/upload is off: set FIXTURE_UPLOAD=on";
+
+/**
+ * POST /upload (FIXTURE_UPLOAD=on only): the raw body, or a multipart form's field `file`, streamed
  * to the Bucket under `?key=` or a new UUID; answers {key, sha256, bytes}.
  * An S3 failure answers its status, code and message.
  */
@@ -663,6 +676,7 @@ async function upload(
 	deps: FixtureDeps,
 	url: URL,
 ): Promise<Response> {
+	if (!uploadEnabled(deps.env)) return fail(404, "not_found", UPLOAD_OFF);
 	if (request.method !== "POST")
 		return fail(405, "method_not_allowed", "send the file with POST");
 	if (!deps.bucket) return noBucket();
@@ -694,7 +708,11 @@ async function upload(
 	}
 }
 
-/** GET /files/<key>: the object, streamed, or 404 NoSuchKey. */
+/**
+ * GET /files/<key>: the object, streamed, or 404 NoSuchKey. Always a
+ * download (application/octet-stream, attachment, nosniff), never the
+ * uploader's type, so a stored HTML page cannot run on the App's host.
+ */
 async function file(
 	request: Request,
 	deps: FixtureDeps,
@@ -719,7 +737,9 @@ async function file(
 	deps.keepOpen(request);
 	return new Response(found.body, {
 		headers: {
-			"content-type": found.contentType ?? "application/octet-stream",
+			"content-type": "application/octet-stream",
+			"content-disposition": "attachment",
+			"x-content-type-options": "nosniff",
 			"cache-control": "no-store",
 			...(found.bytes !== null
 				? { "content-length": String(found.bytes) }
@@ -833,6 +853,7 @@ export async function handleFixture(
 		case "/upload":
 			return upload(request, deps, url);
 		case "/upload-form":
+			if (!uploadEnabled(deps.env)) return fail(404, "not_found", UPLOAD_OFF);
 			return new Response(UPLOAD_FORM, {
 				headers: {
 					"content-type": "text/html; charset=utf-8",
