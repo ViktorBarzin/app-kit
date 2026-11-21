@@ -102,6 +102,15 @@ package back, list it in `ignoreDeps` in `renovate.json`.
 - A failed apply is retried by applying the Project File again, even
   unchanged, not by deleting the Project: a deleted Project's name is never
   given out again.
+- `cloud sync enable <project> --repo <repo url>` keeps the Project File
+  in a Forgejo repo, usually the App's own (`cloud.yaml` at its root by
+  default; `--branch` and `--path` pick others). Cloud applies each commit
+  that changes it within 2 minutes. A Service removed from the file keeps
+  running until `cloud changes confirm <id>`, and `cloud apply` and the
+  console's edit forms are refused while sync is on; `cloud sync disable`
+  turns it off (`cloud help sync`). A commit to the App's deploy branch
+  that changes only `cloud.yaml` still builds and deploys the App, as any
+  push does, unless its message holds `[skip cloud]`.
 - `cloud projects delete <project>` stops the Project within minutes, but
   for 7 days `cloud projects restore <project>` brings it back on its last
   Deploys with its databases; `cloud projects --deleted` lists what can be
