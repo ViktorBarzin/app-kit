@@ -129,7 +129,7 @@ describe("/kv-fill", () => {
 
 	test("past the Size: 507 kv_full with the message, after what fit", async () => {
 		const kv = fakeKv(16);
-		const response = await call("/kv-fill?mb=20", kv);
+		const response = await call("/kv-fill?mb=17", kv);
 		expect(response.status).toBe(507);
 		expect(await response.json()).toEqual({
 			error: { code: "kv_full", message: FULL_MESSAGE },
@@ -158,14 +158,21 @@ describe("/kv-fill", () => {
 		expect(kv.filled).toBe(0);
 	});
 
-	test("never fills past twice the Size, so the shared Redis is safe", async () => {
-		expect(kvFillLimitMib(ENV)).toBe(32);
+	test("never fills past the Size plus 1 MiB, so the shared Redis is safe", async () => {
+		expect(kvFillLimitMib(ENV)).toBe(17);
+		expect(kvFillLimitMib({ CLOUD_KV_MAX_BYTES: "1500" })).toBe(2);
 		const kv = fakeKv(1000);
-		kv.filled = 30;
-		const response = await call("/kv-fill?mb=3", kv);
-		expect(response.status).toBe(409);
-		expect((await response.json()).error.code).toBe("fill_limit");
-		expect(kv.filled).toBe(30);
+		const over = await call("/kv-fill?mb=18", kv);
+		expect(over.status).toBe(409);
+		expect((await over.json()).error).toEqual({
+			code: "fill_limit",
+			message:
+				"the fill holds 0 MiB; 18 more would pass 17 MiB, the Size plus 1 MiB",
+		});
+		expect(kv.filled).toBe(0);
+		expect((await call("/kv-fill?mb=17", kv)).status).toBe(200);
+		expect((await call("/kv-fill?mb=1", kv)).status).toBe(409);
+		expect(kv.filled).toBe(17);
 	});
 
 	test("refuses a bad mb and a Key Value without a Size", async () => {

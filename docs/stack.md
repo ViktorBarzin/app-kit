@@ -315,7 +315,8 @@ services:
     which the Key Value's user may not run.
 - **Commands.** Strings, hashes, lists, sets, sorted sets, streams,
   transactions, Lua scripts and pub/sub work. `KEYS`, `SCAN`, `SELECT`,
-  `FLUSHDB`, `CONFIG`, `INFO` and the other admin commands answer `NOPERM`:
+  `MOVE`, `COPY`, `DBSIZE`, `FLUSHDB`, `CONFIG`, `INFO` and the other admin
+  commands answer `NOPERM`:
   keep the keys you need to find again in a set or a hash. ioredis's
   ready check runs `INFO`, so `createRedis()` turns it off.
 - **Data.** It survives restarts, with at most 1 s of writes lost (Redis

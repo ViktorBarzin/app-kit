@@ -9,7 +9,7 @@
  * - /kv-fill: only with FIXTURE_FILL=on, writes 1 MiB keys without a TTL
  *   under the App's prefix to fill the Key Value past its Size, one small
  *   write to see whether writes work, and deletes them again. It never
- *   holds more than twice the Size, since the Redis is shared.
+ *   holds more than the Size plus 1 MiB, since the Redis is shared.
  */
 /** The most MiB one /kv-fill call writes. */
 export const KV_FILL_MAX_MIB = 256;
@@ -61,12 +61,15 @@ export function redisErrorText(err: unknown): string {
 	return /^[A-Z]+ /.test(message) ? message.slice(0, 300) : "error";
 }
 
-/** The most MiB /kv-fill holds: twice the Size, 0 when the Size is unknown. */
+/**
+ * The most MiB /kv-fill holds: the Size plus 1 MiB, enough to pass it, and
+ * 0 when the Size is unknown.
+ */
 export function kvFillLimitMib(
 	env: Record<string, string | undefined>,
 ): number {
 	const raw = env.CLOUD_KV_MAX_BYTES?.trim() ?? "";
-	return /^[1-9][0-9]*$/.test(raw) ? Math.ceil((2 * Number(raw)) / MIB) : 0;
+	return /^[1-9][0-9]*$/.test(raw) ? Math.ceil(Number(raw) / MIB) + 1 : 0;
 }
 
 /** One /kv-fill at a time per process. */
@@ -143,7 +146,7 @@ async function fill(
 				"fill_limit",
 				limit === 0
 					? "CLOUD_KV_MAX_BYTES is not set, so the fill has no limit to keep under"
-					: `the fill holds ${before} MiB; ${mib} more would pass ${limit} MiB, twice the Size`,
+					: `the fill holds ${before} MiB; ${mib} more would pass ${limit} MiB, the Size plus 1 MiB`,
 			);
 		let wrote = 0;
 		try {

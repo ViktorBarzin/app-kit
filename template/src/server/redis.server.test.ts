@@ -12,7 +12,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import { Queue, Worker } from "bullmq";
 import Redis from "ioredis";
-
 import {
 	createRedis,
 	fullMessage,
@@ -21,6 +20,7 @@ import {
 	sizeText,
 	toKeyValueError,
 } from "./redis.server";
+import { TENANT_WRITE_COMMANDS } from "./redis-tenant-writes";
 
 class ReplyError extends Error {}
 
@@ -33,37 +33,74 @@ describe("the full error", () => {
 		);
 	});
 
-	test("a write refused by command is the full error", () => {
-		const refused = new ReplyError(
-			"NOPERM User p_a_b_0123456789 has no permissions to run the 'set' command",
+	const refusal = (command: string) =>
+		new ReplyError(
+			`NOPERM User p_a_b_0123456789 has no permissions to run the '${command}' command`,
 		);
-		expect(isFullRefusal(refused, "set")).toBe(true);
-		expect(isFullRefusal(refused, "publish")).toBe(true);
-		expect(isFullRefusal(refused, "eval")).toBe(true);
-		const mapped = toKeyValueError(refused, "set", 16 * 1048576);
+
+	test("a refused write the tenant may run while under its Size is the full error", () => {
+		for (const command of [
+			"set",
+			"hset",
+			"incr",
+			"publish",
+			"eval",
+			"evalsha",
+			"xgroup|create",
+			"blmove",
+		])
+			expect([command, isFullRefusal(refusal(command))]).toEqual([
+				command,
+				true,
+			]);
+		const refused = refusal("set");
+		const mapped = toKeyValueError(refused, 16 * 1048576);
 		expect(mapped).toBeInstanceOf(KeyValueFullError);
 		expect((mapped as KeyValueFullError).message).toBe(
 			fullMessage(16 * 1048576),
 		);
 		expect((mapped as KeyValueFullError).code).toBe("KV_FULL");
+		expect((mapped as KeyValueFullError).command).toBe("set");
 		expect((mapped as KeyValueFullError).maxBytes).toBe(16 * 1048576);
 		expect((mapped as KeyValueFullError).cause).toBe(refused);
 	});
 
+	test("a command the tenant may never run is never the full error", () => {
+		for (const command of [
+			"flushdb",
+			"flushall",
+			"sort",
+			"swapdb",
+			"move",
+			"copy",
+			"keys",
+			"select",
+			"scan",
+			"randomkey",
+			"dbsize",
+			"function|load",
+			"function|delete",
+			"script|flush",
+			"script|kill",
+			"pubsub|channels",
+			"config|set",
+			"info",
+		])
+			expect([command, isFullRefusal(refusal(command))]).toEqual([
+				command,
+				false,
+			]);
+	});
+
 	test("other refusals pass through unchanged", () => {
 		const key = new ReplyError("NOPERM No permissions to access a key");
-		const keys = new ReplyError(
-			"NOPERM User p_a_b_0123456789 has no permissions to run the 'keys' command",
-		);
+		const keys = refusal("keys");
 		const other = new ReplyError("WRONGTYPE Operation against a key");
-		expect(toKeyValueError(key, "set", 16)).toBe(key);
-		expect(toKeyValueError(keys, "keys", 16)).toBe(keys);
-		expect(toKeyValueError(other, "set", 16)).toBe(other);
+		expect(toKeyValueError(key, 16)).toBe(key);
+		expect(toKeyValueError(keys, 16)).toBe(keys);
+		expect(toKeyValueError(other, 16)).toBe(other);
 		// Without a Size there is no limit to name.
-		const refused = new ReplyError(
-			"NOPERM User u has no permissions to run the 'set' command",
-		);
-		expect(toKeyValueError(refused, "set", null)).toBe(refused);
+		expect(toKeyValueError(refusal("set"), null)).toBeInstanceOf(ReplyError);
 	});
 
 	test("the channel helper prefixes, the client is lazy", async () => {
@@ -134,8 +171,20 @@ function tenantRules(prefix: string): string[] {
 		"-randomkey",
 		"-function",
 		"-script|flush",
+		"-move",
+		"-copy",
+		"-script|kill",
+		"-dbsize",
+		"-pubsub|channels",
+		"-pubsub|shardchannels",
+		"-pubsub|numsub",
+		"-pubsub|shardnumsub",
+		"-pubsub|numpat",
 	];
 }
+
+/** The template's own refusals beyond -@dangerous, for the category check. */
+const TEMPLATE_REFUSES = ["move", "copy"];
 
 /** The read-and-delete rule set of a tenant over its Size. */
 function fullRules(prefix: string): string[] {
@@ -295,6 +344,55 @@ describe.skipIf(!dockerOk())("on a real Redis with the tenant rules", () => {
 			sub.disconnect();
 			await kv.close();
 		}
+	});
+
+	test("the full-error write list is what the tenant template allows on this Redis", async () => {
+		const list = async (category: string) =>
+			new Set(
+				(
+					(await admin.call(
+						"COMMAND",
+						"LIST",
+						"FILTERBY",
+						"ACLCAT",
+						category,
+					)) as string[]
+				).map((name) => name.toLowerCase()),
+			);
+		const [write, dangerous, scripting] = await Promise.all([
+			list("write"),
+			list("dangerous"),
+			list("scripting"),
+		]);
+		const expected = new Set(
+			[...write].filter(
+				(name) =>
+					!dangerous.has(name) &&
+					!TEMPLATE_REFUSES.includes(name) &&
+					!name.startsWith("function|"),
+			),
+		);
+		for (const name of scripting)
+			if (!dangerous.has(name) && !name.includes("|")) expected.add(name);
+		expected.add("publish");
+		expected.add("spublish");
+		expect([...TENANT_WRITE_COMMANDS].sort()).toEqual([...expected].sort());
+		// And the tenant really may run them, and may not run the refused ones.
+		const dryrun = (args: string[]) =>
+			admin.call("ACL", "DRYRUN", USER, ...args).then(String);
+		expect(await dryrun(["set", `${PREFIX}a`, "1"])).toBe("OK");
+		expect(await dryrun(["publish", `${PREFIX}c`, "1"])).toBe("OK");
+		for (const args of [
+			["flushdb"],
+			["sort", `${PREFIX}a`, "store", `${PREFIX}b`],
+			["swapdb", "0", "1"],
+			["move", `${PREFIX}a`, "1"],
+			["copy", `${PREFIX}a`, `${PREFIX}b`],
+			["dbsize"],
+			["pubsub", "channels"],
+			["script", "kill"],
+		])
+			expect([args[0], await dryrun(args)]).not.toEqual([args[0], "OK"]);
 	});
 
 	test("over its Size: writes throw the full error, GET and DEL still work", async () => {

@@ -18,10 +18,10 @@
  * DEL still work. Such a write rejects with KeyValueFullError, whose message
  * names the Size.
  */
-import { hasFlag } from "@ioredis/commands";
 import Redis, { type Command, type RedisOptions } from "ioredis";
 
 import { type KeyValueSettings, keyValueSettings } from "./env.server";
+import { TENANT_WRITE_COMMANDS } from "./redis-tenant-writes";
 
 const MIB = 1048576;
 
@@ -47,47 +47,34 @@ export class KeyValueFullError extends Error {
 	}
 }
 
-/**
- * Commands a full Key Value refuses besides those Redis flags `write`:
- * scripts and functions (they may write) and publishing.
- */
-const REFUSED_WHEN_FULL = new Set([
-	"eval",
-	"evalsha",
-	"eval_ro",
-	"evalsha_ro",
-	"fcall",
-	"fcall_ro",
-	"publish",
-	"spublish",
-]);
-
 const COMMAND_REFUSED =
 	/^NOPERM .* has no permissions to run the '([^']+)' command/;
 
 /**
- * Whether `err` is Redis refusing a write command by name. The App's user
- * may run every write while under its Size, so such a refusal means it is
- * full; a key outside the prefix is refused with another message.
+ * The command a NOPERM error names, when it is a write the App's user may
+ * run while under its Size (TENANT_WRITE_COMMANDS); else null. Such a
+ * refusal means the Key Value is full. A key outside the prefix, and a
+ * command the user may never run (FLUSHDB, SORT, MOVE, COPY, ...), are
+ * refused for other reasons and give null.
  */
-export function isFullRefusal(err: unknown, commandName: string): boolean {
-	if (!(err instanceof Error)) return false;
-	const match = COMMAND_REFUSED.exec(err.message);
-	if (!match) return false;
-	const name = commandName.toLowerCase();
-	return hasFlag(name, "write") || REFUSED_WHEN_FULL.has(name);
+export function fullRefusalCommand(err: unknown): string | null {
+	if (!(err instanceof Error)) return null;
+	const name = COMMAND_REFUSED.exec(err.message)?.[1]?.toLowerCase();
+	return name !== undefined && TENANT_WRITE_COMMANDS.has(name) ? name : null;
+}
+
+export function isFullRefusal(err: unknown): boolean {
+	return fullRefusalCommand(err) !== null;
 }
 
 /** KeyValueFullError for a full refusal with a known Size, else `err` itself. */
 export function toKeyValueError(
 	err: unknown,
-	commandName: string,
 	maxBytes: number | null,
 ): unknown {
-	if (maxBytes === null || !isFullRefusal(err, commandName)) return err;
-	return new KeyValueFullError(maxBytes, commandName.toLowerCase(), {
-		cause: err,
-	});
+	const command = fullRefusalCommand(err);
+	if (maxBytes === null || command === null) return err;
+	return new KeyValueFullError(maxBytes, command, { cause: err });
 }
 
 /** ioredis options with its default reply mapping (RESP2-shaped replies). */
@@ -109,7 +96,7 @@ class KeyValueClient extends Redis {
 		const reject = command.reject;
 		const maxBytes = this.#maxBytes;
 		command.reject = (err: Error) => {
-			const mapped = toKeyValueError(err, command.name, maxBytes);
+			const mapped = toKeyValueError(err, maxBytes);
 			reject(mapped instanceof Error ? mapped : err);
 		};
 		return super.sendCommand(command, stream);
