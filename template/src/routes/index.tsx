@@ -76,10 +76,12 @@ function Items({ status }: { status: PageAccess }) {
 
 	return (
 		<main className="mx-auto flex min-h-dvh max-w-md flex-col gap-5 p-6">
-			<header className="flex items-baseline justify-between">
+			<header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
 				<h1 className="text-2xl font-semibold">{app.displayName}</h1>
-				<span className="flex items-baseline gap-3 text-sm text-muted-foreground">
-					<span data-testid="username">{status.username}</span>
+				<span className="flex min-w-0 items-baseline gap-3 text-sm text-muted-foreground">
+					<span className="break-all" data-testid="username">
+						{status.username}
+					</span>
 					{status.signOutUrl ? (
 						<a className="underline" href={status.signOutUrl}>
 							Sign out

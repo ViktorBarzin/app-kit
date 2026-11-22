@@ -35,6 +35,27 @@ test("a member signs in through the provider and sees the list", async ({
 	expect(errors).toEqual([]);
 });
 
+test("the header keeps the title and a long email apart on a phone", async ({
+	browser,
+}) => {
+	const email = "a-long-family-member-name@example.com";
+	await addUser(email, [app.usersGroup]);
+	const page = await signedInPage(browser, email);
+	await page.setViewportSize({ width: 390, height: 800 });
+	const user = page.getByTestId("username");
+	await expect(user).toHaveText(email);
+	const title = await page
+		.getByRole("heading", { name: app.displayName })
+		.boundingBox();
+	const name = await user.boundingBox();
+	if (!title || !name) throw new Error("header not laid out");
+	// Side by side with a gap, or the email on a line of its own below.
+	const apart =
+		name.x >= title.x + title.width + 8 || name.y >= title.y + title.height;
+	expect(apart).toBe(true);
+	expect(name.x + name.width).toBeLessThanOrEqual(390);
+});
+
 test("a non-member waits on /pending until an admin approves", async ({
 	browser,
 }) => {
