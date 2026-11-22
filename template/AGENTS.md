@@ -382,8 +382,9 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
 ## Database
 
 - Connection budget: 5 per pod on a shared primary. The pool takes 4
-  (`APP_POOL_MAX`), the realtime LISTEN connection 1; the migrate init
-  container uses 1 more while it runs. On Cloud the pool is
+  (`APP_POOL_MAX`), the realtime LISTEN connection 1; migrations use 1
+  more while they run (on Cloud the migrate Job of each Deploy, on the
+  infra path the Deployment's init container). On Cloud the pool is
   `CLOUD_DATABASE_POOL_SIZE` plus the LISTEN connection
   (`connectionBudget()` in `env.server.ts`). Cloud counts each instance
   twice (during a rollout the old pods keep their connections until they
@@ -408,9 +409,9 @@ To opt out for good, set `telemetry.enabled: false` in `src/app.config.ts`.
   server, and a changed return shape breaks the old page (for example
   `data.map is not a function`). Add the new function or field first, and
   remove the old one in a later release. `bun run db:generate` writes
-  them to `drizzle/`; the init container applies them under
-  `pg_advisory_lock` (on Cloud, the migrate Job of each Deploy; see On
-  Cloud).
+  them to `drizzle/`. On Cloud a migrate Job applies them once per Deploy,
+  under `pg_advisory_lock`, before the new version starts (see On Cloud);
+  on the infra path the Deployment's init container applies them.
 - The identity tables come from `@viktorbarzin/auth/schema`. A change there is
   a major version of that package and needs a regenerated migration here.
 

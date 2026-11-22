@@ -77,10 +77,10 @@ package back, list it in `ignoreDeps` in `renovate.json`.
   failed its health check or recovered.
 - `cloud notifications` lists what Cloud told you: a Deploy failed or went
   live, an App turned unhealthy or recovered, a cron run failed, a Postgres
-  reached 80% of its disk. `cloud notifications channels add email
-  <address>` or `add webhook <url>` sends them on by email or as a
-  Standard Webhooks POST signed with a `whsec_` secret shown once
-  (`cloud help notifications`).
+  or a Bucket reached 80% of its Size's storage. `cloud notifications
+  channels add email <address>` or `add webhook <url>` sends them on by
+  email or as a Standard Webhooks POST signed with a `whsec_` secret
+  shown once (`cloud help notifications`).
 - `cloud pg backups <project> <postgres>` lists the Postgres's backups:
   a nightly dump kept 14 days, and the newest 5 manual ones, which `cloud
   pg backup` takes now. `cloud pg restore <project> <postgres> --backup
