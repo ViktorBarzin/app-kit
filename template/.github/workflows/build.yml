@@ -1,9 +1,16 @@
 name: Build and Push
 
-# Off-infra build (infra ADR-0002; default stack in ADR-0001). GitHub-hosted
-# runners lint, test, build and push the image to GHCR. On master the image
-# also gets `latest`, the repo gets its next vX.Y.Z tag (svu), and the build
-# signals the Woodpecker deploy pipeline, which rolls Deployment `starter`.
+# Off-infra build (infra ADR-0002; default stack in ADR-0001). One
+# GitHub-hosted job lints, type-checks, builds and pushes the image to GHCR.
+# On master the image also gets `latest`, the repo gets its next vX.Y.Z tag
+# (svu), and the build signals the Woodpecker deploy pipeline, which rolls
+# Deployment `starter`.
+#
+# The unit, HTTP and e2e tests do not run here: a private repo spends the
+# account's 2,000 monthly Actions minutes, and they ran out in October 2026.
+# They run before a change lands (AGENTS.md, "Test locally first").
+# viktor/app-template itself is public, so its minutes are free, and it runs
+# the full test job instead of the build.
 #
 # Committed on the FORGEJO side (the GitHub repo is a one-way mirror; commits
 # made on GitHub are overwritten by the next sync).
@@ -16,6 +23,10 @@ on:
     branches: [master]
   workflow_dispatch: {}
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 # Read-only by default; only the image build job below can push to ghcr.
 permissions:
   contents: read
@@ -26,6 +37,7 @@ env:
 
 jobs:
   lint-and-test:
+    if: github.repository == 'ViktorBarzin/app-template'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -91,7 +103,6 @@ jobs:
           retention-days: 7
 
   build:
-    needs: lint-and-test
     # viktor/app-template itself only tests; an app made from it builds and deploys.
     if: github.repository != 'ViktorBarzin/app-template'
     runs-on: ubuntu-latest
@@ -103,6 +114,39 @@ jobs:
         with:
           fetch-depth: 0      # full history + tags so svu sees the last vX.Y.Z
           fetch-tags: true
+      # The @viktorbarzin/* packages come from Forgejo's npm registry
+      # (bunfig.toml, app-kit ADR-0003). Until they are published there (and
+      # app-kit's export has written bun.lock), the install below cannot work;
+      # say that plainly instead of failing inside bun.
+      - name: Check the @viktorbarzin packages resolve on Forgejo
+        run: |
+          missing=""
+          for spec in $(jq -r '(.dependencies // {}) + (.devDependencies // {})
+              | to_entries[] | select(.key | startswith("@viktorbarzin/"))
+              | "\(.key)@\(.value)"' package.json); do
+            version=$(npm view "$spec" version \
+              --@viktorbarzin:registry=https://forgejo.viktorbarzin.me/api/packages/viktor/npm/ \
+              2>/dev/null | tail -n 1)
+            if [ -z "$version" ]; then missing="$missing $spec"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=publish @viktorbarzin packages first::Not on Forgejo's npm registry:$missing. Publish them from viktor/app-kit (README, 'Releasing'), then refresh this repo with app-kit's scripts/export-template.ts."
+            exit 1
+          fi
+          if [ ! -f bun.lock ]; then
+            echo "::error title=publish @viktorbarzin packages first::bun.lock is missing. Run app-kit's scripts/export-template.ts after the packages are published; it writes bun.lock."
+            exit 1
+          fi
+          echo "all @viktorbarzin packages resolve on Forgejo"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.3
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      # vite writes src/routeTree.gen.ts, which typecheck needs.
+      - run: bun run build
+      - run: bun run typecheck
+
       # Auto-semver (svu): tag-only, pushed to CANONICAL Forgejo (GitHub tags
       # would be wiped by the next mirror sync). Best-effort: never blocks the
       # build. The download is checked against a pinned sha256 in a step that

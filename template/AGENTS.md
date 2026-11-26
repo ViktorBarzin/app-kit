@@ -198,7 +198,8 @@ are, except where this section says otherwise.
   changes confirm <id>`. A commit that changes only `cloud.yaml` still
   deploys the App, unless its message holds `[skip cloud]`. `cloud sync
   status <project>` shows the last commit applied and any error.
-- **Test locally first.** Each push costs build minutes. Before you push,
+- **Test locally first.** CI runs only lint, typecheck and the image build;
+  the tests run nowhere else, and each push costs build minutes. Before you push,
   start a throwaway Postgres (README, "Run locally"), install the test
   browser once with `bunx playwright install chromium-headless-shell`, and
   run
@@ -444,7 +445,7 @@ devvm, `~/.bun/bin/bun` is 1.3.11 and comes first on PATH; run
 whichever `bun` is first on PATH, and the server refuses to start on an older
 one.
 
-After `dev`, in the order CI runs them:
+After `dev`, in this order (CI runs the first three):
 
 ```sh
 bun run dev            # vite dev under Bun on 127.0.0.1:${PORT:-3000}

@@ -184,6 +184,22 @@ describe("template build.yml", () => {
 		expect(writers).toEqual(["build"]);
 	});
 
+	// A private app spends the account's 2,000 monthly Actions minutes, and
+	// every job bills at least a whole minute. Its tests run before it lands
+	// (AGENTS.md, "Test locally first"); only the public template, whose
+	// minutes are free, runs them in CI.
+	test("an app runs one job; only the public template runs the tests", async () => {
+		const wf = (await workflow("template/.github/workflows/build.yml")) as Workflow & {
+			concurrency?: { "cancel-in-progress"?: boolean };
+		};
+		expect(wf.jobs["lint-and-test"]?.if).toBe("github.repository == 'ViktorBarzin/app-template'");
+		expect(wf.jobs.build?.if).toBe("github.repository != 'ViktorBarzin/app-template'");
+		expect(wf.jobs.build?.needs).toBeUndefined();
+		expect(runText(wf.jobs.build as Job)).toContain("bun run typecheck");
+		expect(runText(wf.jobs.build as Job)).not.toContain("bun run test");
+		expect(wf.concurrency?.["cancel-in-progress"]).toBe(true);
+	});
+
 	test("the step holding FORGEJO_GIT_TOKEN downloads nothing", async () => {
 		const wf = await workflow("template/.github/workflows/build.yml");
 		for (const job of Object.values(wf.jobs))
