@@ -21,9 +21,12 @@ name: Release
 #   secret, a granular token that expires (see ADR-0003). It runs only when
 #   the repo variable NPM_PUBLISH_ENABLED is 'true'.
 on:
-  push:
-    branches: [master]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label. Woodpecker's ci-route sets it (infra ci/route).
+        type: string
+        default: ubuntu-latest
 
 permissions:
   contents: read
@@ -38,7 +41,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     permissions:
       contents: read
     services:
@@ -88,7 +91,7 @@ jobs:
   publish-forgejo:
     needs: build
     if: github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     environment: forgejo-publish
     permissions:
       contents: read
@@ -130,7 +133,7 @@ jobs:
   publish-npm:
     needs: build
     if: vars.NPM_PUBLISH_ENABLED == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     environment: npm-publish
     permissions:
       contents: read
