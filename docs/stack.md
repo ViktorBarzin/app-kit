@@ -483,7 +483,7 @@ flowchart TD
 | Tests | `bun test` with happy-dom and Testing Library, Playwright for end-to-end |
 | Lint and format | Biome |
 | Image | built on `oven/bun:1.4.3`, runs on `oven/bun:1.4.3-distroless` as user `10001` |
-| Build | GitHub Actions, image pushed to ghcr.io |
+| Build | GitHub Actions, started by Woodpecker on GitHub's runners, or on the homelab's when the private minutes are used up; image pushed to ghcr.io |
 | Deploy | Woodpecker sets the image tag. Terraform owns everything else |
 
 TanStack Start is not Next.js. It has no `getServerSideProps`, no
@@ -739,7 +739,8 @@ This is the infra path. On Cloud, Cloud builds each push and rolls it out
 ```mermaid
 flowchart TD
   P[push to master on Forgejo] --> GH[GitHub mirror]
-  GH --> T["GitHub Actions: Biome, typecheck,<br/>bun test, Playwright e2e"]
+  GH --> R0["Woodpecker build.yml: ci-route<br/>GitHub runners, or homelab runners<br/>when the private minutes are out"]
+  R0 --> T["GitHub Actions build.yml: Biome, typecheck"]
   T --> I["image build, pushed to ghcr.io<br/>tagged with the commit SHA and latest"]
   I -- "Woodpecker API, manual event with IMAGE_TAG" --> W[Woodpecker deploy.yml]
   W -- "kubectl set image" --> D[Deployment]
@@ -756,6 +757,7 @@ flowchart TD
   Cloud's check build passed ("Running on Cloud" above).
 - TanStack Start and Router are pinned to exact versions and upgraded
   together, because Start ships breaking changes in minor and patch releases.
-  The app's tests run before the deploy job and stop a breaking bump.
+  CI runs Biome and typecheck before the image build. The unit, HTTP and
+  e2e tests run only in the land gate, so they do not see a Renovate commit.
 - The Bun version in `packageManager`, the `oven/bun` base image and CI's
   `setup-bun` move together in one commit.

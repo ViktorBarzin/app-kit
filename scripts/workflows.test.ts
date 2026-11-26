@@ -206,6 +206,30 @@ describe("template build.yml", () => {
 		expect(wf.concurrency?.["cancel-in-progress"]).toBe(true);
 	});
 
+	// Every build starts from Woodpecker, which picks GitHub's runners or the
+	// homelab's (infra docs/architecture/ci-cd.md, "Routing builds through
+	// Woodpecker"), so the workflow has no push trigger of its own.
+	test("Woodpecker starts the build; jobs read the runner from the dispatch", async () => {
+		const raw = Bun.YAML.parse(
+			await readFile(
+				join(ROOT, "template/.github/workflows/build.yml"),
+				"utf8",
+			),
+		) as {
+			on: Record<string, unknown>;
+			jobs: Record<string, { "runs-on": string }>;
+		};
+		expect(raw.on.push).toBeUndefined();
+		expect(raw.jobs.build["runs-on"]).toBe(
+			"${{ inputs.runner || 'ubuntu-latest' }}",
+		);
+		const route = await readFile(
+			join(ROOT, "template/.woodpecker/build.yml"),
+			"utf8",
+		);
+		expect(route).toContain("ci-route --request build.yml");
+	});
+
 	test("the step holding FORGEJO_GIT_TOKEN downloads nothing", async () => {
 		const wf = await workflow("template/.github/workflows/build.yml");
 		for (const job of Object.values(wf.jobs))
